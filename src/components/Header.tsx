@@ -16,8 +16,12 @@ import {
   ChevronRight,
   Maximize2,
   SlidersHorizontal,
+  Link2,
+  Sparkles,
+  Code,
 } from 'lucide-react';
 import { Post } from '../types';
+import { AppIcon } from './AppIcon';
 
 interface HeaderProps {
   posts: Post[];
@@ -31,11 +35,15 @@ interface HeaderProps {
   setSearchQuery: (q: string) => void;
   onNewPost: () => void;
   onOpenSupabaseModal: () => void;
+  onOpenSocialModal?: () => void;
+  onOpenAiModal?: () => void;
+  onOpenApiWebhookModal?: () => void;
+  connectedSocialCount?: number;
   isMockMode: boolean;
-  isRightPanelOpen: boolean;
-  setIsRightPanelOpen: (open: boolean) => void;
-  isComposerOpenMobile: boolean;
-  setIsComposerOpenMobile: (open: boolean) => void;
+  isRightPanelOpen?: boolean;
+  setIsRightPanelOpen?: (open: boolean) => void;
+  isComposerOpenMobile?: boolean;
+  setIsComposerOpenMobile?: (open: boolean) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -50,11 +58,11 @@ export const Header: React.FC<HeaderProps> = ({
   setSearchQuery,
   onNewPost,
   onOpenSupabaseModal,
+  onOpenSocialModal,
+  onOpenAiModal,
+  onOpenApiWebhookModal,
+  connectedSocialCount = 4,
   isMockMode,
-  isRightPanelOpen,
-  setIsRightPanelOpen,
-  isComposerOpenMobile,
-  setIsComposerOpenMobile,
 }) => {
   const scheduledCount = posts.filter((p) => p.status === 'scheduled').length;
   const publishedCount = posts.filter((p) => p.status === 'published').length;
@@ -94,9 +102,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Left: Brand & Workspace */}
       <div className="flex items-center gap-3 shrink-0">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-            <Send className="w-4 h-4 -rotate-12 translate-x-0.5" />
-          </div>
+          <AppIcon size="sm" />
           <div>
             <div className="flex items-center gap-1.5 leading-none">
               <span className="font-bold text-sm text-white tracking-tight">PostPulse</span>
@@ -212,28 +218,55 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="text-slate-500">kész</span>
         </div>
 
-        {/* Right Studio Panel Expand/Collapse Toggle */}
-        <button
-          onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-          className={`p-1.5 rounded-lg border transition-all ${
-            isRightPanelOpen
-              ? 'bg-white/[0.08] text-white border-white/[0.1]'
-              : 'text-slate-400 hover:text-white border-white/[0.06] hover:bg-white/[0.04]'
-          }`}
-          title={isRightPanelOpen ? 'Oldalpanel elrejtése (Teljes képernyős naptár)' : 'Oldalpanel megjelenítése'}
-          id="toggle-right-panel-btn"
-        >
-          {isRightPanelOpen ? (
-            <PanelRightClose className="w-4 h-4 text-emerald-400" />
-          ) : (
-            <PanelRightOpen className="w-4 h-4" />
-          )}
-        </button>
+        {/* AI Campaign Generator Button */}
+        {onOpenAiModal && (
+          <button
+            onClick={onOpenAiModal}
+            className="h-8 px-2.5 sm:px-3 rounded-lg border border-purple-500/40 hover:border-purple-400 bg-gradient-to-r from-purple-500/15 to-indigo-500/15 hover:from-purple-500/25 hover:to-indigo-500/25 text-purple-200 hover:text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-xs"
+            title="AI Poszt & Időzítés Generátor (Gemini AI automatikusan draftként tölti a naptárba)"
+            id="header-ai-generator-btn"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+            <span className="hidden md:inline">AI Poszt Generátor</span>
+            <span className="md:hidden">AI</span>
+          </button>
+        )}
+
+        {/* API & Webhook Ingestion Button */}
+        {onOpenApiWebhookModal && (
+          <button
+            onClick={onOpenApiWebhookModal}
+            className="h-8 px-2.5 sm:px-3 rounded-lg border border-cyan-500/30 hover:border-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/15 text-cyan-300 hover:text-white font-medium text-xs flex items-center gap-1.5 transition-all shadow-xs"
+            title="API & Webhook végpont (JSON küldése külső AI-ból vagy n8n/Make-ből)"
+            id="header-api-webhook-btn"
+          >
+            <Code className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden lg:inline">API / Webhook</span>
+            <span className="lg:hidden">API</span>
+          </button>
+        )}
+
+        {/* Social Accounts & Credentials Connection Button */}
+        {onOpenSocialModal && (
+          <button
+            onClick={onOpenSocialModal}
+            className="h-8 px-2.5 sm:px-3 rounded-lg border border-blue-500/30 hover:border-blue-400 bg-blue-500/10 hover:bg-blue-500/15 text-blue-300 hover:text-white font-medium text-xs flex items-center gap-1.5 transition-all shadow-xs"
+            title="Social Platformok és fiókok csatlakoztatása (Bejelentkezési adatok & API kulcsok)"
+            id="header-connect-social-btn"
+          >
+            <Link2 className="w-3.5 h-3.5 text-blue-400" />
+            <span className="hidden sm:inline">Platformok Csatlakoztatása</span>
+            <span className="sm:hidden">Social</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-blue-500/20 text-blue-200 border border-blue-400/30">
+              {connectedSocialCount}/4
+            </span>
+          </button>
+        )}
 
         {/* Primary Action Button */}
         <button
           onClick={onNewPost}
-          className="h-8 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs rounded-lg flex items-center gap-1.5 shadow-sm transition-all active:scale-[0.98]"
+          className="h-8 px-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs rounded-lg flex items-center gap-1.5 shadow-sm transition-all active:scale-[0.98]"
           id="header-new-post-btn"
         >
           <Plus className="w-3.5 h-3.5 stroke-[2.5]" />

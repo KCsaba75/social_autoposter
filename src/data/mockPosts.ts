@@ -25,15 +25,8 @@ export const initialMockPosts: Post[] = [
         hashtags: '#fashion #autumn #limitededition #newcollection #design #premium',
         firstComment: 'Kattints a linkre a bióban az előzetes VIP feliratkozáshoz! 🎁',
       },
-      threads: {
-        threadReplies: ['Az első 100 megrendelő ajándék tokot kap!'],
-      },
-      facebook: {
-        format: 'post',
-        linkPreviewTitle: 'Őszi Kollekció 2026 - Előrendelés Nyitva',
-      },
     },
-    platforms: ['instagram', 'threads', 'facebook'],
+    platforms: ['instagram'],
   },
   {
     id: 'post-story-ig',
@@ -50,13 +43,8 @@ export const initialMockPosts: Post[] = [
         storyLink: 'https://postpulse.app/vip-flash',
         storyStickerText: 'VÁSÁRLÁS MOST 🛍️',
       },
-      facebook: {
-        format: 'story',
-        storyLink: 'https://postpulse.app/vip-flash',
-        callToAction: 'SHOP_NOW',
-      },
     },
-    platforms: ['instagram', 'facebook'],
+    platforms: ['instagram'],
   },
   {
     id: 'post-reel-viral',
@@ -74,12 +62,25 @@ export const initialMockPosts: Post[] = [
         audioTrackName: 'Trending Audio • Synthwave Beats (Original)',
         hashtags: '#reels #behindthescenes #aesthetic #branding #design #reelsviral',
       },
+    },
+    platforms: ['instagram'],
+  },
+  {
+    id: 'post-fb-reel',
+    created_at: getDateOffset(-1, 14, 0),
+    scheduled_at: getDateOffset(1, 20, 0), // Tomorrow 20:00
+    status: 'scheduled',
+    base_text: '💡 3 gyors beállítás a telefonodon, amitől azonnal jobb minőségű videókat készíthetsz! Nézd meg a Reel videót! 📱✨',
+    media_urls: [
+      'https://images.unsplash.com/photo-1536240478700-b869070f9279?auto=format&fit=crop&w=1000&q=80',
+    ],
+    custom_content: {
       facebook: {
         format: 'reel',
         callToAction: 'LEARN_MORE',
       },
     },
-    platforms: ['instagram', 'facebook'],
+    platforms: ['facebook'],
   },
   {
     id: 'post-2',
@@ -92,13 +93,32 @@ export const initialMockPosts: Post[] = [
     ],
     custom_content: {
       youtube: {
+        format: 'video',
         title: 'Hogyan építs automatizált ügyfélszolgálatot 2026-ban? | Teljes útmutató',
         description: 'Ebben a videóban bemutatjuk a teljes technológiai stacket, az API architektúrát és a valós ROI megtérülést.\n\nIdőbélyegek:\n0:00 - Bevezetés\n02:15 - A rendszer alapjai\n07:40 - Élő demó\n12:10 - Konklúzió',
         visibility: 'public',
       },
-      threads: {},
     },
-    platforms: ['youtube', 'threads'],
+    platforms: ['youtube'],
+  },
+  {
+    id: 'post-yt-shorts',
+    created_at: getDateOffset(-2, 13, 0),
+    scheduled_at: getDateOffset(2, 12, 15), // Day after tomorrow 12:15
+    status: 'scheduled',
+    base_text: '⚡ 30 másodperces produktivitási trükk a Notionben, amit minden alkotónak ismernie kell! ⏱️ #Shorts #Productivity',
+    media_urls: [
+      'https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1000&q=80',
+    ],
+    custom_content: {
+      youtube: {
+        format: 'shorts',
+        title: '30 másodperces Notion tipp alkotóknak #shorts',
+        description: 'Iratkozz fel a csatornánkra a heti gyors produktivitási trükkökért! Link a bióban.',
+        visibility: 'public',
+      },
+    },
+    platforms: ['youtube'],
   },
   {
     id: 'post-3',
@@ -111,13 +131,12 @@ export const initialMockPosts: Post[] = [
     ],
     custom_content: {
       facebook: {
+        format: 'post',
         linkPreviewTitle: 'TechHub Meetup 2026 összefoglaló galéria',
-      },
-      instagram: {
-        hashtags: '#techcommunity #meetup #networking #innovation #budapest',
+        firstComment: '🔗 A teljes fotóalbumot és a prezentációk letölthető diáit itt találjátok: https://techhub.example/meetup-diak',
       },
     },
-    platforms: ['facebook', 'instagram'],
+    platforms: ['facebook'],
   },
   {
     id: 'post-4',
@@ -130,33 +149,28 @@ export const initialMockPosts: Post[] = [
     ],
     custom_content: {
       threads: {
-        threadReplies: ['Nektek melyik vált be a legjobban a fenti 5 közül?'],
-      },
-      instagram: {
-        hashtags: '#socialmediamarketing #marketingtips #growthhacks #contentcreator',
-        firstComment: 'Mentsd el ezt a posztot későbbre! 📌',
+        threadReplies: ['Nektek melyik vált be a legjobban a fenti 5 közül? Írjátok meg válaszban!'],
       },
     },
-    platforms: ['threads', 'instagram', 'facebook'],
+    platforms: ['threads'],
   },
   {
-    id: 'post-5',
-    created_at: getDateOffset(-4, 14, 0),
-    scheduled_at: getDateOffset(4, 12, 0), // +4 days
+    id: 'post-fb-story',
+    created_at: getDateOffset(-1, 8, 30),
+    scheduled_at: getDateOffset(3, 11, 0), // +3 days
     status: 'scheduled',
-    base_text: 'Új podcast epizód érkezik pénteken! Vendégünk a hazai SaaS világ egyik meghatározó alakja. Beszélgetünk bootstrap vs. VC témákról és termékfejlesztésről.',
+    base_text: '📢 Ma délután 15:00-kor élő Kérdezz-Felelek a Facebook oldalunkon! Készítsd elő a kérdéseidet!',
     media_urls: [
-      'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?auto=format&fit=crop&w=1000&q=80',
+      'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1000&q=80',
     ],
     custom_content: {
-      youtube: {
-        title: 'SaaS Alapítók Műhelye Ep. 42 - A növekedés kulcsa',
-        description: 'Iratkozz fel a csatornára és kapcsold be az értesítéseket!',
-        visibility: 'unlisted',
+      facebook: {
+        format: 'story',
+        storyLink: 'https://postpulse.app/live-qa',
+        callToAction: 'SIGN_UP',
       },
-      facebook: {},
     },
-    platforms: ['youtube', 'facebook'],
+    platforms: ['facebook'],
   },
   {
     id: 'post-6',
@@ -165,8 +179,12 @@ export const initialMockPosts: Post[] = [
     status: 'failed',
     base_text: 'Heti akció: Használd a FLASH30 kuponkódot és élvezd a 30% kedvezményt minden előfizetésre éjfélig!',
     media_urls: [],
-    custom_content: {},
-    platforms: ['facebook', 'instagram'],
-    error_log: 'Instagram Graph API hiba: OAuth token expired. Kérjük frissítsd a jogosultságot.',
+    custom_content: {
+      facebook: {
+        format: 'post',
+      },
+    },
+    platforms: ['facebook'],
+    error_log: 'Facebook Graph API hiba: OAuth token expired. Kérjük frissítsd a jogosultságot.',
   },
 ];

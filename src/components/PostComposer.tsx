@@ -23,12 +23,20 @@ import {
   Clapperboard,
   Link2,
   Music,
+  Info,
+  Play,
+  MessageSquare,
+  Trash2,
+  Building2,
+  User,
+  Users,
 } from 'lucide-react';
 import {
   Platform,
   Post,
   PostStatus,
   MediaFormat,
+  FacebookTargetType,
   CustomContent,
   InstagramCustomContent,
   YouTubeCustomContent,
@@ -42,6 +50,7 @@ import {
 } from '../lib/constants';
 import { PlatformIcon } from './PlatformIcon';
 import { apiUploadMedia } from '../lib/supabase';
+import { canDeletePost } from '../lib/postPermissions';
 
 interface PostComposerProps {
   initialPost?: Post | null;
@@ -51,6 +60,7 @@ interface PostComposerProps {
     action: 'draft' | 'schedule' | 'publish'
   ) => Promise<void>;
   onCancelEdit?: () => void;
+  onDelete?: (post: Post) => void;
   // State lifted for real-time live preview
   currentPlatforms: Platform[];
   setCurrentPlatforms: (p: Platform[]) => void;
@@ -69,6 +79,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
   targetDate,
   onSave,
   onCancelEdit,
+  onDelete,
   currentPlatforms,
   setCurrentPlatforms,
   currentText,
@@ -89,10 +100,18 @@ export const PostComposer: React.FC<PostComposerProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Active single platform - enforce 1 post = 1 platform policy
+  const selectedPlatform: Platform = currentPlatforms[0] || 'instagram';
+
   // Sync initial post if provided
   useEffect(() => {
     if (initialPost) {
-      setCurrentPlatforms(initialPost.platforms);
+      const p =
+        initialPost.platforms && initialPost.platforms.length > 0
+          ? [initialPost.platforms[0]]
+          : (['instagram'] as Platform[]);
+      setCurrentPlatforms(p);
+      setActiveTab(p[0]);
       setCurrentText(initialPost.base_text);
       setCurrentMedia(initialPost.media_urls || []);
       setCurrentCustomContent(initialPost.custom_content || {});
@@ -121,17 +140,10 @@ export const PostComposer: React.FC<PostComposerProps> = ({
     }
   }, [currentScheduledAt]);
 
-  const togglePlatform = (p: Platform) => {
-    if (currentPlatforms.includes(p)) {
-      if (currentPlatforms.length === 1) {
-        // Prevent deselecting all
-        return;
-      }
-      setCurrentPlatforms(currentPlatforms.filter((item) => item !== p));
-      if (activeTab === p) setActiveTab('general');
-    } else {
-      setCurrentPlatforms([...currentPlatforms, p]);
-    }
+  // Single-platform selection handler (1 post = 1 platform)
+  const handleSelectPlatform = (p: Platform) => {
+    setCurrentPlatforms([p]);
+    setActiveTab(p);
   };
 
   // Media file upload handler
@@ -227,7 +239,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           base_text: currentText,
           media_urls: currentMedia,
           custom_content: currentCustomContent,
-          platforms: currentPlatforms,
+          platforms: [selectedPlatform],
           error_log: null,
         },
         action
@@ -240,7 +252,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
   // Threads Character Count limit (500)
   const threadsLength = currentText.length;
   const isThreadsOverLimit = threadsLength > 500;
-  const isThreadsSelected = currentPlatforms.includes('threads');
+  const isThreadsSelected = selectedPlatform === 'threads';
 
   return (
     <div className="bg-[#0d1117] flex flex-col h-full overflow-hidden text-slate-200">
@@ -252,7 +264,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             {initialPost ? 'Poszt Módosítása' : 'Tartalom Készítő & Időzítő'}
           </h2>
           <p className="text-[11px] text-slate-400">
-            Multi-platform szerkesztés, média és ütemezés
+            Egy poszt = Egy platform • Méretre és formátumra szabott tartalom
           </p>
         </div>
 
@@ -267,35 +279,58 @@ export const PostComposer: React.FC<PostComposerProps> = ({
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-4 p-4">
-        {/* 1. Platform Selector Toggles */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-[11px] font-mono font-semibold text-slate-400 uppercase tracking-wider">
-              Célplatformok ({currentPlatforms.length}/4)
+        {/* 1. Single Platform Selector (One post = One platform policy) */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-mono font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Célplatform (Egy poszt = Egy platform)
             </label>
+            <span className="text-[10px] font-mono text-slate-400 bg-white/[0.04] px-2 py-0.5 rounded border border-white/[0.06]">
+              Külön képarány & megjelenés
+            </span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-            {(['facebook', 'instagram', 'threads', 'youtube'] as Platform[]).map((plat) => {
-              const isSelected = currentPlatforms.includes(plat);
+
+          {/* Rule banner explaining why 1 post = 1 platform */}
+          <div className="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/20 text-[11px] text-emerald-300/90 flex items-start gap-2">
+            <Info className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            <p className="leading-relaxed">
+              <strong>Minden platform eltérő képméretet és formátumot igényel</strong> (pl. Instagram Story/Reel 9:16, YouTube 16:9, Facebook Feed 1:1 / 1.91:1). Ezért egy bejegyzés egy adott felülethez készül a tökéletes, torzításmentes megjelenésért.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {(['instagram', 'facebook', 'youtube', 'threads'] as Platform[]).map((plat) => {
+              const isSelected = selectedPlatform === plat;
               const config = PLATFORM_CONFIGS[plat];
 
               return (
                 <button
                   key={plat}
                   type="button"
-                  onClick={() => togglePlatform(plat)}
-                  className={`p-2 rounded-lg border flex items-center gap-2 transition-all text-xs font-medium ${
+                  onClick={() => handleSelectPlatform(plat)}
+                  className={`p-2.5 rounded-xl border flex flex-col gap-1 transition-all text-left relative ${
                     isSelected
-                      ? 'bg-[#181d2a] border-emerald-500/50 text-white shadow-xs ring-1 ring-emerald-500/20'
-                      : 'bg-[#121620] text-slate-400 border-white/[0.06] hover:border-white/[0.12] hover:text-slate-200 opacity-60'
+                      ? 'bg-[#181d2a] border-emerald-500 text-white shadow-md ring-2 ring-emerald-500/30'
+                      : 'bg-[#121620] text-slate-400 border-white/[0.06] hover:border-white/[0.15] hover:text-slate-200'
                   }`}
-                  id={`toggle-platform-${plat}`}
+                  id={`select-platform-${plat}`}
                 >
-                  <PlatformIcon platform={plat} size="sm" />
-                  <span className="truncate">{config.name.split(' ')[0]}</span>
-                  {isSelected && (
-                    <span className="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  )}
+                  <div className="flex items-center justify-between w-full">
+                    <div className="flex items-center gap-1.5">
+                      <PlatformIcon platform={plat} size="sm" />
+                      <span className="text-xs font-bold capitalize">{plat}</span>
+                    </div>
+                    {isSelected && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {plat === 'instagram' && '1:1, 4:5 v. 9:16'}
+                    {plat === 'facebook' && '1.91:1 v. 9:16'}
+                    {plat === 'youtube' && '16:9 v. 9:16 Shorts'}
+                    {plat === 'threads' && '1:1 / 500 kar.'}
+                  </span>
                 </button>
               );
             })}
@@ -415,9 +450,37 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                 {isUploading ? 'Feltöltés folyamatban...' : 'Húzd ide a fájlt vagy kattints a tallózáshoz'}
               </p>
               <p className="text-[10px] text-zinc-500">
-                Képek (JPG, PNG, WebP) és Videók (MP4) feltöltése a Supabase Storage vödrébe
+                Képek (JPG, PNG, WebP) és Videók (MP4) feltöltése a Supabase Storage tárhelyre
               </p>
             </div>
+          </div>
+
+          {/* Dynamic Platform & Format Aspect Ratio Guide */}
+          <div className="px-3 py-2 rounded-lg bg-emerald-950/20 border border-emerald-500/20 flex items-center justify-between text-[11px] text-slate-300">
+            <div className="flex items-center gap-1.5">
+              <PlatformIcon platform={selectedPlatform} size="sm" />
+              <span className="font-mono text-emerald-300 font-medium">
+                {selectedPlatform === 'instagram' && (
+                  (currentCustomContent.instagram?.format === 'story' || currentCustomContent.instagram?.format === 'reel')
+                    ? '9:16 Vertikális (1080×1920 px) • Reels/Story'
+                    : '1:1 Négyzet (1080×1080) v. 4:5 Álló (1080×1350) • Feed'
+                )}
+                {selectedPlatform === 'facebook' && (
+                  (currentCustomContent.facebook?.format === 'story' || currentCustomContent.facebook?.format === 'reel')
+                    ? '9:16 Vertikális (1080×1920 px) • Reels/Story'
+                    : '1.91:1 Fekvő (1200×630) v. 1:1 Négyzet • Hírfolyam'
+                )}
+                {selectedPlatform === 'youtube' && (
+                  currentCustomContent.youtube?.format === 'shorts'
+                    ? '9:16 Vertikális (1080×1920 px, max 60s) • Shorts'
+                    : '16:9 Fekvő FHD (1920×1080 px) • Videó & Indexkép'
+                )}
+                {selectedPlatform === 'threads' && '1:1 Négyzet (1080×1080 px) • Threads Média'}
+              </span>
+            </div>
+            <span className="text-[10px] text-emerald-400 font-mono font-semibold uppercase">
+              Optimális Képméret
+            </span>
           </div>
 
           {/* Upload Progress bar */}
@@ -488,53 +551,21 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           </div>
         </div>
 
-        {/* 4. Platform-Specific Override Section (Tabs / Accordion) */}
-        <div className="space-y-3 pt-2 border-t border-zinc-800">
-          <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider">
-            Platform-specifikus Beállítások & Felülírás
-          </label>
-
-          {/* Tab selector */}
-          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-zinc-950 rounded-xl border border-zinc-800">
-            <button
-              type="button"
-              onClick={() => setActiveTab('general')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                activeTab === 'general'
-                  ? 'bg-zinc-800 text-white'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              Általános
-            </button>
-
-            {currentPlatforms.map((plat) => (
-              <button
-                key={plat}
-                type="button"
-                onClick={() => setActiveTab(plat)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  activeTab === plat
-                    ? 'bg-zinc-800 text-white'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <PlatformIcon platform={plat} size="sm" />
-                <span className="capitalize">{plat}</span>
-              </button>
-            ))}
+        {/* 4. Platform-Specific Formátum & Képméret Beállítások */}
+        <div className="space-y-3 pt-2 border-t border-white/[0.08]">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-white uppercase tracking-wider flex items-center gap-1.5">
+              <PlatformIcon platform={selectedPlatform} size="sm" />
+              <span>{PLATFORM_CONFIGS[selectedPlatform].name} Formátum & Képméret</span>
+            </label>
+            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" />
+              1 poszt = 1 platform
+            </span>
           </div>
 
-          {/* General Tab info */}
-          {activeTab === 'general' && (
-            <div className="p-3 bg-zinc-950/40 rounded-xl border border-zinc-800/80 text-xs text-zinc-400 leading-relaxed">
-              A fenti központi szöveg és a csatolt média automatikusan szinkronizálódik minden kiválasztott platformra.
-              A fenti fülekre kattintva adhatsz meg speciális Instagram hashtageket, YouTube videócímet vagy Threads kiegészítéseket!
-            </div>
-          )}
-
-          {/* Instagram Specific Tab */}
-          {activeTab === 'instagram' && (
+          {/* Instagram Specific */}
+          {selectedPlatform === 'instagram' && (
             <div className="p-3.5 bg-[#121620] rounded-xl border border-white/[0.08] space-y-3.5 animate-fadeIn">
               <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
                 <span className="text-xs font-semibold text-pink-400 flex items-center gap-1.5">
@@ -588,6 +619,20 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Instagram Aspect Ratio Guide */}
+              <div className="px-2.5 py-1.5 rounded-lg bg-pink-950/20 border border-pink-500/20 flex items-center justify-between text-[11px] text-pink-300">
+                <span className="font-mono">
+                  {currentCustomContent.instagram?.format === 'story'
+                    ? '📐 Story: 1080×1920 px (9:16 vertikális, max 15 mp)'
+                    : currentCustomContent.instagram?.format === 'reel'
+                      ? '📐 Reels: 1080×1920 px (9:16 vertikális videó, max 90 mp)'
+                      : '📐 Feed: 1080×1080 px (1:1 négyzet) vagy 1080×1350 px (4:5 álló)'}
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-pink-400">
+                  Optimális Méret
+                </span>
               </div>
 
               {/* Story Specific Controls */}
@@ -724,17 +769,76 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             </div>
           )}
 
-          {/* YouTube Specific Tab */}
-          {activeTab === 'youtube' && (
-            <div className="p-3.5 bg-zinc-950 rounded-xl border border-zinc-800 space-y-3 animate-fadeIn">
-              <span className="text-xs font-semibold text-red-400 flex items-center gap-1.5">
-                <PlatformIcon platform="youtube" size="sm" />
-                YouTube Videó & Shorts Beállítások
-              </span>
+          {/* YouTube Specific Settings */}
+          {selectedPlatform === 'youtube' && (
+            <div className="p-3.5 bg-[#121620] rounded-xl border border-white/[0.08] space-y-3.5 animate-fadeIn">
+              <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
+                <span className="text-xs font-semibold text-red-400 flex items-center gap-1.5">
+                  <PlatformIcon platform="youtube" size="sm" />
+                  YouTube Tartalom Típusa & Beállítások
+                </span>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-500/10 text-red-300 border border-red-500/20 uppercase">
+                  {currentCustomContent.youtube?.format || 'video'}
+                </span>
+              </div>
+
+              {/* YouTube Format Selector: Video vs Shorts */}
+              <div>
+                <label className="block text-[11px] font-mono font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                  YouTube Formátum
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { id: 'video', label: 'Videó (16:9)', desc: '1920×1080 FHD fekvő videó & indexkép', icon: Play },
+                    { id: 'shorts', label: 'YouTube Shorts (9:16)', desc: '1080×1920 álló videó (max 60 mp)', icon: Film },
+                  ].map(({ id, label, desc, icon: Icon }) => {
+                    const currentFmt = currentCustomContent.youtube?.format || 'video';
+                    const isSelected = currentFmt === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() =>
+                          setCurrentCustomContent({
+                            ...currentCustomContent,
+                            youtube: {
+                              ...currentCustomContent.youtube,
+                              format: id as 'video' | 'shorts',
+                            },
+                          })
+                        }
+                        className={`p-2 rounded-lg border text-left flex flex-col gap-1 transition-all ${
+                          isSelected
+                            ? 'bg-[#181d2a] border-red-500/60 text-white ring-1 ring-red-500/30'
+                            : 'bg-[#0d1117] border-white/[0.06] text-slate-400 hover:text-slate-200 hover:border-white/[0.12]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-red-400' : 'text-slate-500'}`} />
+                          <span className="text-xs font-semibold">{label}</span>
+                        </div>
+                        <span className="text-[9px] text-slate-500 line-clamp-1">{desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* YouTube Aspect Ratio Guide */}
+              <div className="px-2.5 py-1.5 rounded-lg bg-red-950/20 border border-red-500/20 flex items-center justify-between text-[11px] text-red-300">
+                <span className="font-mono">
+                  {currentCustomContent.youtube?.format === 'shorts'
+                    ? '📐 Shorts: 1080×1920 px (9:16 vertikális videó, max 60 mp)'
+                    : '📐 Standard videó: 1920×1080 px (16:9 fekvő) • Bélyegkép: 1280×720 px'}
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-red-400">
+                  Optimális Méret
+                </span>
+              </div>
 
               {/* Video Title */}
               <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1">
+                <label className="block text-[11px] font-mono font-medium text-slate-400 mb-1">
                   Videó Címe (kötelező YouTube-on)
                 </label>
                 <input
@@ -750,13 +854,13 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                     })
                   }
                   placeholder="Hogyan készíts hatékony közösségi média stratégiát 2026-ban?"
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-red-500"
+                  className="w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-red-500"
                 />
               </div>
 
               {/* Description */}
               <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1">
+                <label className="block text-[11px] font-mono font-medium text-slate-400 mb-1">
                   Részletes Leírás & Időbélyegek
                 </label>
                 <textarea
@@ -772,13 +876,13 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                     })
                   }
                   placeholder="Részletes leírás, linkek, időbélyegek (00:00 - Intro)..."
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-red-500 resize-none"
+                  className="w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-red-500 resize-none"
                 />
               </div>
 
               {/* Visibility Select */}
               <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1">
+                <label className="block text-[11px] font-mono font-medium text-slate-400 mb-1">
                   Láthatóság (Visibility)
                 </label>
                 <div className="flex items-center gap-2">
@@ -801,8 +905,8 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                       }
                       className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-all ${
                         (currentCustomContent.youtube?.visibility || 'public') === id
-                          ? 'bg-red-950/60 text-red-300 border-red-800/80'
-                          : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                          ? 'bg-red-950/40 text-red-300 border-red-800/80 ring-1 ring-red-500/20'
+                          : 'bg-[#0d1117] text-slate-400 border-white/[0.08] hover:text-slate-200'
                       }`}
                     >
                       <Icon className="w-3 h-3" />
@@ -814,17 +918,17 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             </div>
           )}
 
-          {/* Threads Specific Tab */}
-          {activeTab === 'threads' && (
-            <div className="p-3.5 bg-zinc-950 rounded-xl border border-zinc-800 space-y-3 animate-fadeIn">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
+          {/* Threads Specific Settings */}
+          {selectedPlatform === 'threads' && (
+            <div className="p-3.5 bg-[#121620] rounded-xl border border-white/[0.08] space-y-3.5 animate-fadeIn">
+              <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
+                <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
                   <PlatformIcon platform="threads" size="sm" />
                   Threads Szál & Karakter Figyelő
                 </span>
                 <span
                   className={`text-xs font-mono font-semibold ${
-                    isThreadsOverLimit ? 'text-rose-400' : 'text-zinc-400'
+                    isThreadsOverLimit ? 'text-rose-400' : 'text-slate-400'
                   }`}
                 >
                   {threadsLength} / 500
@@ -832,22 +936,32 @@ export const PostComposer: React.FC<PostComposerProps> = ({
               </div>
 
               {/* Progress bar */}
-              <div className="w-full bg-zinc-900 h-1.5 rounded-full overflow-hidden">
+              <div className="w-full bg-[#0d1117] h-1.5 rounded-full overflow-hidden border border-white/[0.04]">
                 <div
                   className={`h-full transition-all ${
                     isThreadsOverLimit
                       ? 'bg-rose-500'
                       : threadsLength > 400
                         ? 'bg-amber-500'
-                        : 'bg-indigo-500'
+                        : 'bg-emerald-500'
                   }`}
                   style={{ width: `${Math.min(100, (threadsLength / 500) * 100)}%` }}
                 />
               </div>
 
+              {/* Threads Aspect Ratio Guide */}
+              <div className="px-2.5 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] flex items-center justify-between text-[11px] text-slate-300">
+                <span className="font-mono">
+                  📐 Threads média: 1080×1080 px (1:1 négyzet) • Max szöveg: 500 karakter
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Optimális Méret
+                </span>
+              </div>
+
               {/* Thread continuation */}
               <div>
-                <label className="block text-[11px] font-medium text-zinc-400 mb-1">
+                <label className="block text-[11px] font-mono font-medium text-slate-400 mb-1">
                   Szál Folytatása (Automatikus 1. válasz szálként)
                 </label>
                 <input
@@ -863,23 +977,128 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                     })
                   }
                   placeholder="Kiegészítő gondolat vagy kérdés a közösségnek..."
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-zinc-500"
+                  className="w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-slate-500"
                 />
               </div>
             </div>
           )}
 
-          {/* Facebook Specific Tab */}
-          {activeTab === 'facebook' && (
+          {/* Facebook Specific Settings */}
+          {selectedPlatform === 'facebook' && (
             <div className="p-3.5 bg-[#121620] rounded-xl border border-white/[0.08] space-y-3.5 animate-fadeIn">
               <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
                 <span className="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
                   <PlatformIcon platform="facebook" size="sm" />
-                  Facebook Tartalom Típusa & Beállítások
+                  Facebook Fiók Célpont & Tartalom Típus
                 </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 uppercase">
-                  {currentCustomContent.facebook?.format || 'post'}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/25">
+                    {currentCustomContent.facebook?.targetType === 'profile'
+                      ? '👤 Saját Profil'
+                      : currentCustomContent.facebook?.targetType === 'both'
+                      ? '👥 Oldal + Profil'
+                      : '🏢 Üzleti Oldal'}
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 uppercase">
+                    {currentCustomContent.facebook?.format || 'post'}
+                  </span>
+                </div>
+              </div>
+
+              {/* 1. Facebook Target Selector: Page vs Profile vs Both */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-mono font-medium text-slate-400 uppercase tracking-wider">
+                    Facebook Célfiók Típusa
+                  </label>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    API: "facebook_target" vagy "targetType"
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    {
+                      id: 'page',
+                      label: 'Üzleti Oldal',
+                      badge: 'Facebook Page',
+                      desc: 'Hivatalos márka/cég oldal (Meta Graph API)',
+                      icon: Building2,
+                    },
+                    {
+                      id: 'profile',
+                      label: 'Saját Profil',
+                      badge: 'Személyes fiók',
+                      desc: 'Saját személyes profil (Ismerősök elérése)',
+                      icon: User,
+                    },
+                    {
+                      id: 'both',
+                      label: 'Mindkettő',
+                      badge: 'Oldal & Profil',
+                      desc: 'Egyszerre publikálva oldalra és saját fiókra',
+                      icon: Users,
+                    },
+                  ].map(({ id, label, badge, desc, icon: Icon }) => {
+                    const currentTarget = currentCustomContent.facebook?.targetType || 'page';
+                    const isSelected = currentTarget === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() =>
+                          setCurrentCustomContent({
+                            ...currentCustomContent,
+                            facebook: {
+                              ...currentCustomContent.facebook,
+                              targetType: id as FacebookTargetType,
+                            },
+                          })
+                        }
+                        className={`p-2 rounded-lg border text-left flex flex-col gap-1 transition-all ${
+                          isSelected
+                            ? 'bg-gradient-to-br from-blue-950/60 to-indigo-950/40 border-blue-500/60 text-white ring-1 ring-blue-500/30 shadow-xs'
+                            : 'bg-[#0d1117] border-white/[0.06] text-slate-400 hover:text-slate-200 hover:border-white/[0.12]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-blue-400' : 'text-slate-500'}`} />
+                            <span className="text-xs font-semibold">{label}</span>
+                          </div>
+                        </div>
+                        <span className="text-[9px] text-slate-500 line-clamp-1">{desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Optional Custom Target Name (e.g. Page Name or Profile Handle) */}
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Oldal vagy Profil Megnevezése (Opcionális)
+                </label>
+                <input
+                  type="text"
+                  value={currentCustomContent.facebook?.targetName || ''}
+                  onChange={(e) =>
+                    setCurrentCustomContent({
+                      ...currentCustomContent,
+                      facebook: {
+                        ...currentCustomContent.facebook,
+                        targetName: e.target.value,
+                      },
+                    })
+                  }
+                  placeholder={
+                    currentCustomContent.facebook?.targetType === 'profile'
+                      ? 'pl. Kovács János (Saját profil)'
+                      : currentCustomContent.facebook?.targetType === 'both'
+                      ? 'pl. Cégünk Hivatalos Oldala + Személyes megosztás'
+                      : 'pl. Cégünk Hivatalos Oldala (Page)'
+                  }
+                  className="w-full bg-[#0d1117] border border-white/[0.1] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 font-mono"
+                />
               </div>
 
               {/* Format Selector: Post vs Reel vs Story */}
@@ -923,6 +1142,20 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Facebook Aspect Ratio Guide */}
+              <div className="px-2.5 py-1.5 rounded-lg bg-blue-950/20 border border-blue-500/20 flex items-center justify-between text-[11px] text-blue-300">
+                <span className="font-mono">
+                  {currentCustomContent.facebook?.format === 'story'
+                    ? '📐 Story: 1080×1920 px (9:16 vertikális)'
+                    : currentCustomContent.facebook?.format === 'reel'
+                      ? '📐 Reels: 1080×1920 px (9:16 vertikális videó)'
+                      : '📐 Hírfolyam: 1200×630 px (1.91:1) vagy 1080×1080 px (1:1 négyzet)'}
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
+                  Optimális Méret
+                </span>
               </div>
 
               {/* Story Specific Controls */}
@@ -1015,7 +1248,29 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                 </div>
               )}
 
-              {/* Link Preview Title (for standard posts) */}
+              {/* Hashtags Input for Facebook */}
+              <div>
+                <label className="block text-[11px] font-mono font-medium text-slate-400 mb-1">
+                  Facebook Hashtagek (Hírfolyam és Reels bejegyzésekhez)
+                </label>
+                <input
+                  type="text"
+                  value={currentCustomContent.facebook?.hashtags || ''}
+                  onChange={(e) =>
+                    setCurrentCustomContent({
+                      ...currentCustomContent,
+                      facebook: {
+                        ...currentCustomContent.facebook,
+                        hashtags: e.target.value,
+                      },
+                    })
+                  }
+                  placeholder="#facebook #marketing #vallalkozas #uzlet"
+                  className="w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Link Preview Title (for standard feed posts) */}
               {(currentCustomContent.facebook?.format === 'post' || !currentCustomContent.facebook?.format) && (
                 <div>
                   <label className="block text-[11px] font-mono font-medium text-slate-400 mb-1">
@@ -1036,6 +1291,40 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                     placeholder="Pl. Kattints a weboldalunkra és töltsd le az e-bookot!"
                     className="w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
                   />
+                </div>
+              )}
+
+              {/* Facebook First Comment (for feed and reels) */}
+              {currentCustomContent.facebook?.format !== 'story' && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-mono font-medium text-slate-400 flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Facebook Első Komment (First Comment)</span>
+                    </label>
+                    <span className="text-[10px] text-blue-400 font-mono">
+                      Külső linkek & elérés optimalizálás
+                    </span>
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={currentCustomContent.facebook?.firstComment || ''}
+                    onChange={(e) =>
+                      setCurrentCustomContent({
+                        ...currentCustomContent,
+                        facebook: {
+                          ...currentCustomContent.facebook,
+                          firstComment: e.target.value,
+                        },
+                      })
+                    }
+                    placeholder="Pl. 🔗 A cikkben említett linket és a letöltést itt találod: https://pelda.hu/letoltes"
+                    className="w-full bg-[#0d1117] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-blue-500 resize-none"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1 flex items-start gap-1">
+                    <span>💡</span>
+                    <span><strong>Algoritmus tipp:</strong> A Facebook bünteti a külső linket tartalmazó posztszövegeket. Ha a linket az első kommentbe teszed, a bejegyzés elérése és kattintási aránya magasabb marad!</span>
+                  </p>
                 </div>
               )}
             </div>
@@ -1105,16 +1394,36 @@ export const PostComposer: React.FC<PostComposerProps> = ({
 
       {/* 6. Action Buttons Bar */}
       <div className="p-4 border-t border-white/[0.08] bg-[#0d1117] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
-        <button
-          type="button"
-          disabled={isSubmitting}
-          onClick={() => handleSubmit('draft')}
-          className="px-3 py-2 rounded-lg bg-[#121620] hover:bg-[#181d2a] text-slate-300 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors border border-white/[0.08] disabled:opacity-50"
-          id="btn-save-draft"
-        >
-          <Save className="w-3.5 h-3.5" />
-          <span>Vázlat</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={isSubmitting}
+            onClick={() => handleSubmit('draft')}
+            className="px-3 py-2 rounded-lg bg-[#121620] hover:bg-[#181d2a] text-slate-300 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors border border-white/[0.08] disabled:opacity-50"
+            id="btn-save-draft"
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>Vázlat</span>
+          </button>
+
+          {initialPost && onDelete && canDeletePost(initialPost).allowed && (
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => onDelete(initialPost)}
+              className="px-3 py-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors border border-rose-500/30"
+              title={
+                initialPost.status === 'draft'
+                  ? 'Piszkozat törlése'
+                  : 'Jövőbeli időzítés visszavonása és törlése'
+              }
+              id="btn-delete-composer-post"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+              <span>{initialPost.status === 'draft' ? 'Vázlat törlése' : 'Időzítés törlése'}</span>
+            </button>
+          )}
+        </div>
 
         <div className="flex items-center gap-2">
           <button

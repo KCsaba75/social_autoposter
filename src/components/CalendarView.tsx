@@ -10,10 +10,16 @@ import {
   FileText,
   Film,
   Clapperboard,
+  MessageSquare,
+  Hash,
+  Building2,
+  User,
+  Users,
 } from 'lucide-react';
 import { Post, Platform, PostStatus } from '../types';
 import { PLATFORM_CONFIGS, STATUS_CONFIG } from '../lib/constants';
 import { PlatformIcon } from './PlatformIcon';
+import { canDeletePost } from '../lib/postPermissions';
 
 interface CalendarViewProps {
   posts: Post[];
@@ -23,6 +29,7 @@ interface CalendarViewProps {
   onSelectDateForNewPost: (date: Date) => void;
   onSelectPostToEdit: (post: Post) => void;
   onDeletePost: (id: string) => void;
+  onRequestDelete?: (post: Post) => void;
   filterPlatform: Platform | 'all';
   filterStatus: PostStatus | 'all';
   searchQuery: string;
@@ -36,10 +43,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   onSelectDateForNewPost,
   onSelectPostToEdit,
   onDeletePost,
+  onRequestDelete,
   filterPlatform,
   filterStatus,
   searchQuery,
 }) => {
+  const handleDeletePostClick = (post: Post) => {
+    if (onRequestDelete) {
+      onRequestDelete(post);
+    } else {
+      onDeletePost(post.id);
+    }
+  };
   const currentYear = selectedDate.getFullYear();
   const currentMonth = selectedDate.getMonth();
 
@@ -207,15 +222,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     )}
                   </div>
 
-                  {/* Quick Add Button on Cell Hover */}
+                  {/* Quick Add Button on Cell */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedDate(date);
                       onSelectDateForNewPost(date);
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-emerald-500 hover:text-slate-950 text-slate-400 transition-all"
-                    title="Új poszt időzítése erre a napra"
+                    className="opacity-40 group-hover:opacity-100 p-1 rounded hover:bg-emerald-500 hover:text-slate-950 text-slate-400 hover:opacity-100 transition-all"
+                    title="Új poszt időzítése erre a napra (+)"
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </button>
@@ -249,6 +264,25 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                             <span className="font-mono text-slate-400 font-medium ml-1">
                               {postTime}
                             </span>
+                            {/* Facebook Target Type indicator (Page vs Profile vs Both) */}
+                            {post.platforms.includes('facebook') && post.custom_content?.facebook?.targetType === 'profile' && (
+                              <span className="shrink-0 px-1 py-0.2 rounded text-[9px] font-mono font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-0.5" title="Facebook Személyes Profil">
+                                <User className="w-2.5 h-2.5" />
+                                <span>Profil</span>
+                              </span>
+                            )}
+                            {post.platforms.includes('facebook') && post.custom_content?.facebook?.targetType === 'both' && (
+                              <span className="shrink-0 px-1 py-0.2 rounded text-[9px] font-mono font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-0.5" title="Facebook Üzleti Oldal + Személyes Profil">
+                                <Users className="w-2.5 h-2.5" />
+                                <span>Oldal+Profil</span>
+                              </span>
+                            )}
+                            {post.platforms.includes('facebook') && (!post.custom_content?.facebook?.targetType || post.custom_content?.facebook?.targetType === 'page') && (
+                              <span className="shrink-0 px-1 py-0.2 rounded text-[9px] font-mono font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center gap-0.5" title="Facebook Üzleti Oldal">
+                                <Building2 className="w-2.5 h-2.5" />
+                                <span>Oldal</span>
+                              </span>
+                            )}
                             {/* Reel or Story Badge */}
                             {(post.custom_content?.instagram?.format === 'reel' ||
                               post.custom_content?.facebook?.format === 'reel' ||
@@ -265,11 +299,47 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                 <span>Story</span>
                               </span>
                             )}
+                            {post.custom_content?.youtube?.format === 'shorts' && (
+                              <span className="shrink-0 px-1 py-0.2 rounded text-[9px] font-mono font-medium bg-red-500/20 text-red-300 border border-red-500/30 flex items-center gap-0.5" title="YouTube Shorts formátum">
+                                <Film className="w-2.5 h-2.5" />
+                                <span>Shorts</span>
+                              </span>
+                            )}
+                            {/* Hashtags indicator */}
+                            {(Boolean(post.custom_content?.instagram?.hashtags) || Boolean(post.custom_content?.facebook?.hashtags)) && (
+                              <span className="shrink-0 px-1 py-0.2 rounded text-[9px] font-mono text-blue-300 bg-blue-500/15 border border-blue-500/25 flex items-center gap-0.5" title="Hashtagek hozzáadva">
+                                <Hash className="w-2.5 h-2.5" />
+                              </span>
+                            )}
+                            {/* First comment indicator */}
+                            {(Boolean(post.custom_content?.instagram?.firstComment) || Boolean(post.custom_content?.facebook?.firstComment)) && (
+                              <span className="shrink-0 px-1 py-0.2 rounded text-[9px] font-mono text-sky-300 bg-sky-500/15 border border-sky-500/25 flex items-center gap-0.5" title="Első komment beállítva">
+                                <MessageSquare className="w-2.5 h-2.5" />
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1 shrink-0">
                             {post.media_urls && post.media_urls.length > 0 && (
                               <ImageIcon className="w-3 h-3 text-slate-400" />
+                            )}
+                            {canDeletePost(post).allowed && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeletePostClick(post);
+                                }}
+                                className="opacity-0 group-hover/card:opacity-100 p-0.5 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-all"
+                                title={
+                                  post.status === 'draft'
+                                    ? 'Piszkozat törlése'
+                                    : 'Jövőbeli időzítés visszavonása & törlése'
+                                }
+                                id={`delete-post-month-${post.id}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
                             )}
                             <span
                               className={`w-1.5 h-1.5 rounded-full ${
@@ -384,6 +454,25 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                               <span className="font-mono text-xs text-slate-300 font-medium ml-1">
                                 {postTime}
                               </span>
+                              {/* Facebook Target Type indicator (Page vs Profile vs Both) */}
+                              {post.platforms.includes('facebook') && post.custom_content?.facebook?.targetType === 'profile' && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1" title="Facebook Személyes Profil">
+                                  <User className="w-3 h-3" />
+                                  <span>Profil</span>
+                                </span>
+                              )}
+                              {post.platforms.includes('facebook') && post.custom_content?.facebook?.targetType === 'both' && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1" title="Facebook Üzleti Oldal + Személyes Profil">
+                                  <Users className="w-3 h-3" />
+                                  <span>Oldal+Profil</span>
+                                </span>
+                              )}
+                              {post.platforms.includes('facebook') && (!post.custom_content?.facebook?.targetType || post.custom_content?.facebook?.targetType === 'page') && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center gap-1" title="Facebook Üzleti Oldal">
+                                  <Building2 className="w-3 h-3" />
+                                  <span>Oldal</span>
+                                </span>
+                              )}
                               {(post.custom_content?.instagram?.format === 'reel' ||
                                 post.custom_content?.facebook?.format === 'reel' ||
                                 post.custom_content?.instagram?.isReel) && (
@@ -399,19 +488,57 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                   <span>Story</span>
                                 </span>
                               )}
+                              {post.custom_content?.youtube?.format === 'shorts' && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-red-500/20 text-red-300 border border-red-500/30 flex items-center gap-1">
+                                  <Film className="w-3 h-3" />
+                                  <span>Shorts</span>
+                                </span>
+                              )}
+                              {(Boolean(post.custom_content?.instagram?.hashtags) || Boolean(post.custom_content?.facebook?.hashtags)) && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-blue-300 bg-blue-500/15 border border-blue-500/25 flex items-center gap-1" title="Hashtagek beállítva">
+                                  <Hash className="w-3 h-3" />
+                                  <span>Hashtag</span>
+                                </span>
+                              )}
+                              {(Boolean(post.custom_content?.instagram?.firstComment) || Boolean(post.custom_content?.facebook?.firstComment)) && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-sky-300 bg-sky-500/15 border border-sky-500/25 flex items-center gap-1" title="Első komment beállítva">
+                                  <MessageSquare className="w-3 h-3" />
+                                  <span>Első komment</span>
+                                </span>
+                              )}
                             </div>
 
-                            <span
-                              className={`text-[10px] font-mono px-1.5 py-0.5 rounded capitalize ${
-                                post.status === 'published'
-                                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                                  : post.status === 'scheduled'
-                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                              }`}
-                            >
-                              {post.status}
-                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {canDeletePost(post).allowed && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeletePostClick(post);
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-all"
+                                  title={
+                                    post.status === 'draft'
+                                      ? 'Piszkozat törlése'
+                                      : 'Jövőbeli időzítés visszavonása & törlése'
+                                  }
+                                  id={`delete-post-week-${post.id}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              <span
+                                className={`text-[10px] font-mono px-1.5 py-0.5 rounded capitalize ${
+                                  post.status === 'published'
+                                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                                    : post.status === 'scheduled'
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                }`}
+                              >
+                                {post.status}
+                              </span>
+                            </div>
                           </div>
 
                           <p className="text-xs text-slate-200 line-clamp-3 leading-relaxed">

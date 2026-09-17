@@ -4,14 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PostPulse - Social Media Scheduler</title>
-    <meta name="description" content="Metricool & Buffer stílusú közösségi média időzítő, naptár és multi-platform posztoló dashboard Supabase integrációval" />
+    <meta name="description" content="Metricool & Buffer stílusú közösségi média időzítő naptárral, Gemini AI posztgenerálással, Supabase integrációval és draft-first API webhook végponttal" />
     <meta property="og:title" content="PostPulse - Social Media Scheduler" />
-    <meta property="og:description" content="Metricool & Buffer stílusú közösségi média időzítő, naptár és multi-platform posztoló dashboard Supabase integrációval" />
+    <meta property="og:description" content="Metricool & Buffer stílusú közösségi média időzítő naptárral, Gemini AI posztgenerálással, Supabase integrációval és draft-first API webhook végponttal" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+      // Suppress benign Vite dev websocket disconnection errors in cloud container iframe
+      window.addEventListener('unhandledrejection', function (event) {
+        if (event.reason && (
+          String(event.reason).includes('WebSocket') ||
+          String(event.reason?.message || '').includes('WebSocket')
+        )) {
+          event.preventDefault();
+        }
+      });
+    </script>
   </head>
   <body class="bg-[#090b10] text-slate-100 font-sans antialiased overflow-hidden selection:bg-emerald-500/30 selection:text-emerald-200">
     <div id="root" class="h-screen w-screen overflow-hidden"></div>

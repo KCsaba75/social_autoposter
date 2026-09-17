@@ -23,9 +23,14 @@ import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { CalendarView } from './components/CalendarView';
 import { ListView } from './components/ListView';
-import { PostComposer } from './components/PostComposer';
-import { LivePreview } from './components/LivePreview';
+import { PostStudioModal } from './components/PostStudioModal';
 import { SupabaseSetupModal } from './components/SupabaseSetupModal';
+import { SocialAccountsModal } from './components/SocialAccountsModal';
+import { DeleteConfirmModal } from './components/DeleteConfirmModal';
+import { AiCampaignModal } from './components/AiCampaignModal';
+import { ApiWebhookModal } from './components/ApiWebhookModal';
+import { getStoredSocialAccounts } from './lib/socialAccounts';
+import { canDeletePost } from './lib/postPermissions';
 
 export default function App() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -36,10 +41,14 @@ export default function App() {
 
   // Workstation Layout State
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
-  const [rightPanelTab, setRightPanelTab] = useState<'composer' | 'preview'>('composer');
-  const [isComposerOpenMobile, setIsComposerOpenMobile] = useState(false);
+  const [isComposerModalOpen, setIsComposerModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [postsPendingDelete, setPostsPendingDelete] = useState<Post[]>([]);
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
+  const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isApiWebhookModalOpen, setIsApiWebhookModalOpen] = useState(false);
+  const [socialAccounts, setSocialAccounts] = useState(() => getStoredSocialAccounts());
   const [dismissMockBanner, setDismissMockBanner] = useState(false);
 
   // Global filters & search
@@ -57,8 +66,6 @@ export default function App() {
 
   const [currentPlatforms, setCurrentPlatforms] = useState<Platform[]>([
     'instagram',
-    'facebook',
-    'threads',
   ]);
   const [currentText, setCurrentText] = useState<string>(
     '🚀 Készülj fel valami újra! Hamarosan érkezik a legújabb termékfrissítésünk, rengeteg izgalmas funkcióval. Csatlakozz te is a korai hozzáféréshez! ✨👇'
@@ -114,6 +121,14 @@ export default function App() {
   };
 
   useEffect(() => {
+    const cfg = getStoredSupabaseConfig();
+    if (cfg?.url && cfg?.anonKey) {
+      fetch('/api/config/supabase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg),
+      }).catch(() => {});
+    }
     loadPosts();
   }, []);
 
@@ -147,25 +162,61 @@ export default function App() {
 
       await loadPosts();
       setEditingPost(null);
-      setIsComposerOpenMobile(false);
+      setIsComposerModalOpen(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Mentési hiba történt';
       showToast(msg, 'error');
     }
   };
 
-  // Delete post handler
-  const handleDeletePost = async (id: string) => {
+  // Delete post handlers with future / draft validation
+  const handleRequestDelete = (post: Post) => {
+    const perm = canDeletePost(post);
+    if (!perm.allowed) {
+      showToast(perm.reason || 'Csak a jövőben időzített posztok és piszkozatok törölhetők!', 'error');
+      return;
+    }
+    setPostsPendingDelete([post]);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleRequestBatchDelete = (postsToDelete: Post[]) => {
+    const deletables = postsToDelete.filter((p) => canDeletePost(p).allowed);
+    if (deletables.length === 0) {
+      showToast('A kiválasztott posztok közül egyik sem törölhető (csak jövőbeli vagy piszkozat).', 'error');
+      return;
+    }
+    setPostsPendingDelete(deletables);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async (ids: string[]) => {
     try {
-      await apiDeletePost(id);
-      showToast('Poszt sikeresen törölve.');
+      for (const id of ids) {
+        await apiDeletePost(id);
+      }
+      showToast(
+        ids.length > 1
+          ? `${ids.length} db poszt sikeresen törölve.`
+          : 'Poszt sikeresen törölve.'
+      );
       await loadPosts();
-      if (editingPost?.id === id) {
+      if (editingPost && ids.includes(editingPost.id)) {
         setEditingPost(null);
+        setIsComposerModalOpen(false);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Törlési hiba';
       showToast(msg, 'error');
+    }
+  };
+
+  const handleDeletePostById = async (id: string) => {
+    const post = posts.find((p) => p.id === id);
+    if (post) {
+      handleRequestDelete(post);
+    } else {
+      await handleConfirmDelete([id]);
     }
   };
 
@@ -184,7 +235,7 @@ export default function App() {
     }
   };
 
-  // Click date on calendar to create post
+  // Click date on calendar to create post - opens modal
   const handleSelectDateForNewPost = (date: Date) => {
     setSelectedDateForNew(date);
     setEditingPost(null);
@@ -196,16 +247,19 @@ export default function App() {
       .toISOString()
       .slice(0, 16);
     setCurrentScheduledAt(iso);
+    setCurrentText('');
+    setCurrentMedia([]);
+    setCurrentCustomContent({});
 
-    setIsRightPanelOpen(true);
-    setRightPanelTab('composer');
-    setIsComposerOpenMobile(true);
+    setIsComposerModalOpen(true);
   };
 
-  // Click post to edit
+  // Click post to edit - opens modal
   const handleSelectPostToEdit = (post: Post) => {
     setEditingPost(post);
-    setCurrentPlatforms(post.platforms);
+    // Enforce 1 post = 1 platform
+    const targetPlatform = post.platforms && post.platforms.length > 0 ? [post.platforms[0]] : (['instagram'] as Platform[]);
+    setCurrentPlatforms(targetPlatform);
     setCurrentText(post.base_text);
     setCurrentMedia(post.media_urls || []);
     setCurrentCustomContent(post.custom_content || {});
@@ -215,14 +269,13 @@ export default function App() {
         .slice(0, 16)
     );
 
-    setIsRightPanelOpen(true);
-    setRightPanelTab('composer');
-    setIsComposerOpenMobile(true);
+    setIsComposerModalOpen(true);
   };
 
   const handleStartNewBlankPost = () => {
     setEditingPost(null);
     setSelectedDateForNew(new Date());
+    setCurrentPlatforms(['instagram']);
     setCurrentText('');
     setCurrentMedia([]);
     setCurrentCustomContent({});
@@ -234,9 +287,7 @@ export default function App() {
         .toISOString()
         .slice(0, 16)
     );
-    setIsRightPanelOpen(true);
-    setRightPanelTab('composer');
-    setIsComposerOpenMobile(true);
+    setIsComposerModalOpen(true);
   };
 
   return (
@@ -254,11 +305,11 @@ export default function App() {
         setSearchQuery={setSearchQuery}
         onNewPost={handleStartNewBlankPost}
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
+        onOpenSocialModal={() => setIsSocialModalOpen(true)}
+        onOpenAiModal={() => setIsAiModalOpen(true)}
+        onOpenApiWebhookModal={() => setIsApiWebhookModalOpen(true)}
+        connectedSocialCount={(Object.values(socialAccounts) as { connected: boolean }[]).filter((a) => a.connected).length}
         isMockMode={isMockMode}
-        isRightPanelOpen={isRightPanelOpen}
-        setIsRightPanelOpen={setIsRightPanelOpen}
-        isComposerOpenMobile={isComposerOpenMobile}
-        setIsComposerOpenMobile={setIsComposerOpenMobile}
       />
 
       {/* Mock Mode Alert Banner (Compact & dismissible) */}
@@ -287,7 +338,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Full-Screen Workstation Layout */}
+      {/* Full-Screen Workstation Layout: Left Sidebar + Remaining Full-Width Calendar/List Stage */}
       <div className="flex-1 flex overflow-hidden w-full relative">
         {/* Left Navigation Sidebar / Channel Rail */}
         <Sidebar
@@ -301,10 +352,14 @@ export default function App() {
           currentCalendarDate={selectedCalendarDate}
           onJumpToDate={(d) => setSelectedCalendarDate(d)}
           onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
+          onOpenSocialModal={() => setIsSocialModalOpen(true)}
+          onOpenAiModal={() => setIsAiModalOpen(true)}
+          onOpenApiWebhookModal={() => setIsApiWebhookModalOpen(true)}
           isMockMode={isMockMode}
+          onNewPost={handleStartNewBlankPost}
         />
 
-        {/* Center Main Stage (Calendar or List) - Takes available space */}
+        {/* Center Main Stage (Calendar or List) - Takes ALL remaining space */}
         <main className="flex-1 flex flex-col overflow-hidden bg-[#0b0e14]">
           {activeView === 'calendar' ? (
             <CalendarView
@@ -314,7 +369,8 @@ export default function App() {
               viewMode={calendarViewMode}
               onSelectDateForNewPost={handleSelectDateForNewPost}
               onSelectPostToEdit={handleSelectPostToEdit}
-              onDeletePost={handleDeletePost}
+              onDeletePost={handleDeletePostById}
+              onRequestDelete={handleRequestDelete}
               filterPlatform={selectedPlatform}
               filterStatus={selectedStatus}
               searchQuery={searchQuery}
@@ -323,7 +379,9 @@ export default function App() {
             <ListView
               posts={posts}
               onSelectPostToEdit={handleSelectPostToEdit}
-              onDeletePost={handleDeletePost}
+              onDeletePost={handleDeletePostById}
+              onRequestDelete={handleRequestDelete}
+              onRequestBatchDelete={handleRequestBatchDelete}
               onPublishNow={handlePublishNow}
               onNewPost={handleStartNewBlankPost}
               filterPlatform={selectedPlatform}
@@ -332,82 +390,30 @@ export default function App() {
             />
           )}
         </main>
-
-        {/* Right Studio Panel (Composer & Live Preview) - Collapsible with layout toggle */}
-        {isRightPanelOpen && (
-          <aside className="w-full sm:w-[420px] lg:w-[460px] 2xl:w-[500px] shrink-0 h-full flex flex-col bg-[#0d1117] border-l border-white/[0.08] overflow-hidden z-20">
-            {/* Panel Switcher Tabs */}
-            <div className="h-11 border-b border-white/[0.08] px-3 flex items-center justify-between shrink-0 bg-[#0d1117]">
-              <div className="flex items-center gap-1 bg-[#121620] p-0.5 rounded-lg border border-white/[0.06] text-xs">
-                <button
-                  onClick={() => setRightPanelTab('composer')}
-                  className={`px-3 py-1 rounded-md font-medium flex items-center gap-1.5 transition-all ${
-                    rightPanelTab === 'composer'
-                      ? 'bg-white/[0.12] text-white shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  id="tab-composer"
-                >
-                  <PenTool className="w-3 h-3 text-emerald-400" />
-                  <span>Szerkesztő</span>
-                </button>
-                <button
-                  onClick={() => setRightPanelTab('preview')}
-                  className={`px-3 py-1 rounded-md font-medium flex items-center gap-1.5 transition-all ${
-                    rightPanelTab === 'preview'
-                      ? 'bg-white/[0.12] text-white shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  id="tab-preview"
-                >
-                  <Eye className="w-3 h-3 text-blue-400" />
-                  <span>Élő Előnézet</span>
-                </button>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setIsRightPanelOpen(false)}
-                  className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors"
-                  title="Panel elrejtése (Teljes képernyős naptár)"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Panel Content */}
-            <div className="flex-1 overflow-hidden">
-              {rightPanelTab === 'composer' ? (
-                <PostComposer
-                  initialPost={editingPost}
-                  targetDate={selectedDateForNew}
-                  onSave={handleSavePost}
-                  onCancelEdit={() => setEditingPost(null)}
-                  currentPlatforms={currentPlatforms}
-                  setCurrentPlatforms={setCurrentPlatforms}
-                  currentText={currentText}
-                  setCurrentText={setCurrentText}
-                  currentMedia={currentMedia}
-                  setCurrentMedia={setCurrentMedia}
-                  currentCustomContent={currentCustomContent}
-                  setCurrentCustomContent={setCurrentCustomContent}
-                  currentScheduledAt={currentScheduledAt}
-                  setCurrentScheduledAt={setCurrentScheduledAt}
-                />
-              ) : (
-                <LivePreview
-                  platforms={currentPlatforms}
-                  baseText={currentText}
-                  mediaUrls={currentMedia}
-                  customContent={currentCustomContent}
-                  scheduledAt={currentScheduledAt}
-                />
-              )}
-            </div>
-          </aside>
-        )}
       </div>
+
+      {/* Post Studio Modal (Side-by-side: Bal oldal szerkesztő, Jobb oldal élő előnézet) */}
+      <PostStudioModal
+        isOpen={isComposerModalOpen}
+        onClose={() => {
+          setIsComposerModalOpen(false);
+          setEditingPost(null);
+        }}
+        initialPost={editingPost}
+        targetDate={selectedDateForNew}
+        onSave={handleSavePost}
+        onDeletePost={handleRequestDelete}
+        currentPlatforms={currentPlatforms}
+        setCurrentPlatforms={setCurrentPlatforms}
+        currentText={currentText}
+        setCurrentText={setCurrentText}
+        currentMedia={currentMedia}
+        setCurrentMedia={setCurrentMedia}
+        currentCustomContent={currentCustomContent}
+        setCurrentCustomContent={setCurrentCustomContent}
+        currentScheduledAt={currentScheduledAt}
+        setCurrentScheduledAt={setCurrentScheduledAt}
+      />
 
       {/* Floating Toast Notification */}
       {toast && (
@@ -431,12 +437,99 @@ export default function App() {
         </div>
       )}
 
+      {/* Delete Confirmation Modal for Future Scheduled Posts & Drafts */}
+      <DeleteConfirmModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        postsToDelete={postsPendingDelete}
+        onConfirm={handleConfirmDelete}
+      />
+
       {/* Supabase Setup & SQL Schema Modal */}
       <SupabaseSetupModal
         isOpen={isSupabaseModalOpen}
         onClose={() => setIsSupabaseModalOpen(false)}
         onConnectionChanged={loadPosts}
         isMockMode={isMockMode}
+      />
+
+      {/* Social Accounts & Credentials Setup Modal */}
+      <SocialAccountsModal
+        isOpen={isSocialModalOpen}
+        onClose={() => setIsSocialModalOpen(false)}
+        onAccountsUpdated={() => setSocialAccounts(getStoredSocialAccounts())}
+      />
+
+      {/* AI Post & Campaign Generator Modal */}
+      <AiCampaignModal
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        onPostsGeneratedAndSaved={async (newPosts) => {
+          // 1. Reset any search / platform / status filters so user immediately sees the new draft
+          setSelectedStatus('all');
+          setSelectedPlatform('all');
+          setSearchQuery('');
+
+          // 2. Immediately merge new posts into React state so UI updates without waiting for network
+          setPosts((prev) => {
+            const existingIds = new Set(prev.map((p) => p.id));
+            const toAdd = newPosts.filter((p) => !existingIds.has(p.id));
+            return [...toAdd, ...prev];
+          });
+
+          // 3. Jump the calendar to the first generated post's date
+          if (newPosts.length > 0 && newPosts[0].scheduled_at) {
+            const postDate = new Date(newPosts[0].scheduled_at);
+            if (!isNaN(postDate.getTime())) {
+              setSelectedCalendarDate(postDate);
+            }
+          }
+
+          showToast(
+            `${newPosts.length} db AI poszt piszkozat (draft) mentve és betöltve a naptárba!`,
+            'success'
+          );
+
+          await loadPosts();
+        }}
+        targetDate={
+          selectedCalendarDate
+            ? new Date(selectedCalendarDate.getTime() - selectedCalendarDate.getTimezoneOffset() * 60000)
+                .toISOString()
+                .slice(0, 16)
+            : undefined
+        }
+      />
+
+      {/* API & Webhook Ingestion Modal */}
+      <ApiWebhookModal
+        isOpen={isApiWebhookModalOpen}
+        onClose={() => setIsApiWebhookModalOpen(false)}
+        onPostIngested={async (newPosts) => {
+          setSelectedStatus('all');
+          setSelectedPlatform('all');
+          setSearchQuery('');
+
+          setPosts((prev) => {
+            const existingIds = new Set(prev.map((p) => p.id));
+            const toAdd = newPosts.filter((p) => !existingIds.has(p.id));
+            return [...toAdd, ...prev];
+          });
+
+          if (newPosts.length > 0 && newPosts[0].scheduled_at) {
+            const postDate = new Date(newPosts[0].scheduled_at);
+            if (!isNaN(postDate.getTime())) {
+              setSelectedCalendarDate(postDate);
+            }
+          }
+
+          showToast(
+            `${newPosts.length} db poszt fogadva az API-n keresztül (draftként a naptárban)!`,
+            'success'
+          );
+
+          await loadPosts();
+        }}
       />
     </div>
   );

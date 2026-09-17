@@ -74,27 +74,31 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
         throw new Error('Nem sikerült inicializálni a Supabase klienst.');
       }
 
-      // Test query
-      const { error } = await client.from('posts').select('id').limit(1);
+      // Test query for relational tables or legacy table
+      const { data: schedData, error: schedError } = await client.from('scheduled_posts').select('id').limit(1);
+      const { error: legacyError } = await client.from('posts').select('id').limit(1);
 
-      if (error) {
-        if (error.code === '42P01') {
-          // Table doesn't exist yet
-          setTestResult({
-            success: true,
-            message:
-              'A Supabase kapcsolat sikeres! Ne felejtsd el futtatni a fenti SQL sémát a tábla létrehozásához.',
-          });
-        } else {
-          setTestResult({
-            success: false,
-            message: `Supabase hiba: ${error.message} (${error.code || 'Ismeretlen'})`,
-          });
-        }
-      } else {
+      if (!schedError) {
         setTestResult({
           success: true,
-          message: 'Sikeres kapcsolat! A posts tábla elérhető és megfelelően konfigurált.',
+          message: 'Sikeres kapcsolat! A moduláris relációs séma (scheduled_posts, facebook_posts, instagram_posts, youtube_posts, social_accounts) aktív és működik!',
+        });
+      } else if (!legacyError) {
+        setTestResult({
+          success: true,
+          message: 'Sikeres kapcsolat a posts táblával! Ha szeretnéd a több fiókos moduláris táblákat (facebook_posts, youtube_posts, stb.), futtasd le az új SQL sémát.',
+        });
+      } else if (schedError.code === '42P01') {
+        // Table doesn't exist yet
+        setTestResult({
+          success: true,
+          message:
+            'A Supabase kapcsolat létrejött! A táblák még nincsenek létrehozva – futtasd le az alábbi SQL migrációt az SQL Editorban.',
+        });
+      } else {
+        setTestResult({
+          success: false,
+          message: `Supabase hiba: ${schedError.message} (${schedError.code || 'Ismeretlen'})`,
         });
       }
 

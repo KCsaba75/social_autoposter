@@ -1,6 +1,6 @@
 {
   "name": "PostPulse - Social Media Scheduler",
-  "description": "Metricool & Buffer stílusú közösségi média időzítő, naptár és multi-platform posztoló dashboard Supabase integrációval",
+  "description": "Metricool & Buffer stílusú közösségi média időzítő naptárral, Gemini AI posztgenerálással, Supabase integrációval és draft-first API webhook végponttal",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -21,6 +21,9 @@ import {
   Link2,
   ExternalLink,
   ImageIcon,
+  Building2,
+  User,
+  Users,
 } from 'lucide-react';
 import { Platform, CustomContent } from '../types';
 import { PLATFORM_CONFIGS } from '../lib/constants';
@@ -103,28 +106,48 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
         {/* FACEBOOK PREVIEW */}
         {currentTab === 'facebook' && (
           <div className="w-full flex flex-col items-center">
-            {/* Format Indicator Banner */}
-            <div className="w-full max-w-[420px] mb-2 px-3 py-1.5 rounded-lg bg-blue-950/30 border border-blue-500/20 flex items-center justify-between text-[11px] text-blue-300">
-              <div className="flex items-center gap-1.5 font-mono">
-                {customContent.facebook?.format === 'reel' ? (
-                  <>
-                    <Film className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Formátum: Facebook Reels (9:16)</span>
-                  </>
-                ) : customContent.facebook?.format === 'story' ? (
-                  <>
-                    <Clapperboard className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Formátum: Facebook Story (9:16 Történet)</span>
-                  </>
+            {/* Target & Format Indicator Banner */}
+            <div className="w-full max-w-[420px] mb-2 px-3 py-2 rounded-xl bg-[#121620] border border-white/[0.08] flex items-center justify-between text-[11px] text-blue-300 shadow-xs">
+              <div className="flex items-center gap-2">
+                {customContent.facebook?.targetType === 'profile' ? (
+                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/25 font-semibold text-[10px]">
+                    <User className="w-3 h-3 text-purple-400" />
+                    <span>Saját Profil (Fiók)</span>
+                  </span>
+                ) : customContent.facebook?.targetType === 'both' ? (
+                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 border border-indigo-500/25 font-semibold text-[10px]">
+                    <Users className="w-3 h-3 text-indigo-400" />
+                    <span>Oldal + Profil</span>
+                  </span>
                 ) : (
-                  <>
-                    <Globe className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Formátum: Normál Hírfolyam Bejegyzés</span>
-                  </>
+                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/25 font-semibold text-[10px]">
+                    <Building2 className="w-3 h-3 text-blue-400" />
+                    <span>Üzleti Oldal (Page)</span>
+                  </span>
                 )}
+
+                <div className="flex items-center gap-1 font-mono text-[10px] text-slate-300">
+                  {customContent.facebook?.format === 'reel' ? (
+                    <>
+                      <Film className="w-3 h-3 text-blue-400" />
+                      <span>Reels</span>
+                    </>
+                  ) : customContent.facebook?.format === 'story' ? (
+                    <>
+                      <Clapperboard className="w-3 h-3 text-cyan-400" />
+                      <span>Story</span>
+                    </>
+                  ) : (
+                    <>
+                      <Globe className="w-3 h-3 text-blue-400" />
+                      <span>Hírfolyam</span>
+                    </>
+                  )}
+                </div>
               </div>
-              <span className="font-mono text-[10px] text-slate-400">
-                {customContent.facebook?.format === 'story' ? '24 órás elérés' : 'Meta Feed'}
+
+              <span className="font-mono text-[10px] text-slate-400 truncate max-w-[120px]">
+                {customContent.facebook?.targetName || (customContent.facebook?.targetType === 'profile' ? 'Személyes fiók' : 'Facebook Page')}
               </span>
             </div>
 
@@ -288,6 +311,19 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                     {baseText || 'Írd be a Reel videód leírását...'}
                   </p>
 
+                  {customContent.facebook?.hashtags && (
+                    <p className="text-[11px] text-blue-300 line-clamp-1 font-normal">
+                      {customContent.facebook.hashtags}
+                    </p>
+                  )}
+
+                  {customContent.facebook?.firstComment && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-blue-200 bg-blue-950/60 border border-blue-400/30 px-2 py-1 rounded-md">
+                      <MessageSquare className="w-3 h-3 text-blue-400 shrink-0" />
+                      <span className="truncate">Első komment: {customContent.facebook.firstComment}</span>
+                    </div>
+                  )}
+
                   {/* Facebook Reel CTA Button */}
                   {customContent.facebook?.callToAction && customContent.facebook.callToAction !== 'NONE' && (
                     <div className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 text-white rounded-lg text-[11px] font-semibold">
@@ -314,16 +350,41 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                       className="w-9 h-9 rounded-full object-cover border border-zinc-700"
                     />
                     <div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1.5">
                         <span className="font-semibold text-zinc-100 text-xs hover:underline cursor-pointer">
-                          PostPulse Brand Official
+                          {customContent.facebook?.targetName ||
+                            (customContent.facebook?.targetType === 'profile'
+                              ? 'Saját Profil (Kovács János)'
+                              : customContent.facebook?.targetType === 'both'
+                              ? 'Üzleti Oldal & Saját Profil'
+                              : 'PostPulse Brand Official')}
                         </span>
-                        <span className="text-[10px] text-blue-400 font-semibold">• Követés</span>
+                        {customContent.facebook?.targetType === 'profile' ? (
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-purple-500/20 text-purple-300 font-medium">
+                            Személyes
+                          </span>
+                        ) : customContent.facebook?.targetType === 'both' ? (
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-medium">
+                            Oldal + Profil
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-blue-400 font-semibold">• Követés</span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
                         <span>{scheduledDateStr}</span>
                         <span>•</span>
-                        <Globe className="w-3 h-3 text-zinc-500" />
+                        {customContent.facebook?.targetType === 'profile' ? (
+                          <span className="flex items-center gap-0.5 text-zinc-400" title="Ismerősök láthatják">
+                            <User className="w-3 h-3 text-zinc-400" />
+                            <span>Ismerősök</span>
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-0.5 text-zinc-400" title="Nyilvános">
+                            <Globe className="w-3 h-3 text-zinc-500" />
+                            <span>Nyilvános</span>
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -331,8 +392,13 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                 </div>
 
                 {/* FB Post Text */}
-                <div className="p-3 whitespace-pre-line text-zinc-200 text-xs leading-relaxed">
-                  {baseText || 'Írd be a posztod szövegét a bal oldali szerkesztőbe...'}
+                <div className="p-3 whitespace-pre-line text-zinc-200 text-xs leading-relaxed space-y-1">
+                  <div>{baseText || 'Írd be a posztod szövegét a bal oldali szerkesztőbe...'}</div>
+                  {customContent.facebook?.hashtags && (
+                    <p className="text-blue-400 font-normal text-[11px] break-words">
+                      {customContent.facebook.hashtags}
+                    </p>
+                  )}
                 </div>
 
                 {/* FB Media */}
@@ -391,6 +457,37 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                     <span>Megosztás</span>
                   </button>
                 </div>
+
+                {/* FB First Comment Simulator */}
+                {customContent.facebook?.firstComment && (
+                  <div className="p-3 pt-2.5 bg-zinc-950/70 border-t border-zinc-800/80 space-y-2">
+                    <div className="flex items-center justify-between text-[10px] text-zinc-400 font-medium">
+                      <span className="font-mono">Legrelevánsabb hozzászólás</span>
+                      <span className="text-blue-400 font-medium flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                        Ütemezett első komment
+                      </span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <img
+                        src={defaultAvatar}
+                        alt="Profile"
+                        className="w-7 h-7 rounded-full object-cover border border-zinc-700 mt-0.5"
+                      />
+                      <div className="flex-1 bg-zinc-800/80 rounded-2xl px-3 py-2 text-xs border border-white/[0.04]">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-zinc-100 text-xs">PostPulse Brand Official</span>
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-semibold border border-blue-500/30">
+                            Szerző
+                          </span>
+                        </div>
+                        <p className="text-zinc-200 mt-1 whitespace-pre-line leading-relaxed text-[11px]">
+                          {customContent.facebook.firstComment}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
