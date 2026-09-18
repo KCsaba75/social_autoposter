@@ -66,12 +66,21 @@ const ENDPOINTS: EndpointDefinition[] = [
     description:
       'Univerzális beérkező végpont. Automatikusan Draftként menti a posztot a moduláris Supabase táblákba (scheduled_posts + facebook_posts / instagram_posts / youtube_posts).',
     defaultPayload: {
-      base_text: '🚀 Nagy örömmel jelentjük be az új funkciónkat! Hatékonyabb munkafolyamat és automatizáció egy helyen. Próbáld ki még ma! 👇',
       scheduled_at: getIsoDaysAhead(2),
-      platforms: ['facebook', 'instagram'],
-      format: 'feed',
-      hashtags: '#automation #productivity #socialmedia #growth',
-      first_comment: '🔗 Kérdésed van az új funkcióval kapcsolatban? Írd meg kommentben, vagy kattints a linkre: https://postpulse.app/uj-funkcio',
+      facebook: {
+        target_account: 'acc_fb_vellionation', // Cél fiók ID vagy handle (@vellionation)
+        text: '📢 Hivatalos bejelentés vállalkozásunk Facebook Üzleti Oldalán!',
+        format: 'post', // 'post' | 'reel' | 'story'
+        hashtags: '#vallalkozas #uzlet #b2b',
+        first_comment: '🔗 Részletek és kipróbálás: https://postpulse.app',
+      },
+      instagram: {
+        target_account: 'acc_ig_vellionation', // Cél fiók ID vagy handle (@vellionation_official)
+        text: '🔥 Friss hírek az Instagram közösségünknek! Mentsd el a posztot!',
+        format: 'reel', // 'post' | 'reel' | 'story'
+        hashtags: '#reels #growth #uzlet',
+        first_comment: 'Írd meg kommentben a véleményed! 👇',
+      },
       media_urls: [
         'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1200&q=80',
       ],
@@ -79,47 +88,98 @@ const ENDPOINTS: EndpointDefinition[] = [
     },
     presets: [
       {
-        label: '📰 1. Normál Hírfolyam Poszt (FB + IG)',
+        label: '🎯 1. Platformonkénti JSON (FB Oldal + IG Reel)',
         payload: {
-          base_text: '🚀 Nagy örömmel jelentjük be az új funkciónkat! Hatékonyabb munkafolyamat és automatizáció egy helyen. Próbáld ki még ma! 👇',
           scheduled_at: getIsoDaysAhead(1),
-          platforms: ['facebook', 'instagram'],
-          format: 'feed',
-          hashtags: '#automation #productivity #socialmedia',
-          first_comment: '🔗 Részletek és kipróbálás: https://postpulse.app/uj-funkcio',
-          media_urls: [
-            'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1200&q=80',
-          ],
-        },
-      },
-      {
-        label: '🎬 2. Reels Videó (FB Reels + IG Reels)',
-        payload: {
-          base_text: '🔥 3 bevált trükk, amivel azonnal megduplázhatod a közösségi média eléréseidet! Mentsd el későbbre! 📌',
-          scheduled_at: getIsoDaysAhead(2),
-          platforms: ['facebook', 'instagram'],
-          format: 'reel',
-          hashtags: '#reels #instagramreels #facebookreels #growth',
-          first_comment: 'Te melyik tippet teszteled először a héten? Írd meg alább kommentben! 👇',
+          facebook: {
+            target_account: 'acc_fb_vellionation',
+            text: '🏢 Hivatalos céges közlemény a Facebook Üzleti Oldalra!',
+            format: 'post',
+            hashtags: '#vallalkozas #uzlet #hirek',
+            first_comment: 'Írd meg véleményed alább kommentben! 👇',
+          },
+          instagram: {
+            target_account: 'acc_ig_vellionation',
+            text: '🎬 3 gyors technikai trükk a jobb hatékonyságért! Nézd meg a videót!',
+            format: 'reel',
+            hashtags: '#reels #instagramreels #tippek',
+            first_comment: 'Kérdésed van? Tedd fel nyugodtan!',
+          },
           media_urls: [
             'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=1200&q=80',
           ],
         },
       },
       {
-        label: '⏱️ 3. 24 órás Story Poszt',
+        label: '👤 2. FB Személyes Profil (@napicsabi)',
         payload: {
-          base_text: 'Élő Q&A kérdezz-felelek ma este 19:00-kor! Csatlakozz te is a közvetítéshez!',
           scheduled_at: getIsoDaysAhead(1),
-          platforms: ['facebook', 'instagram'],
-          format: 'story',
+          facebook: {
+            target_account: '@napicsabi',
+            text: '☕ Személyes gondolatok a heti fejlesztésekről és a kulisszák mögötti kihívásokról...',
+            format: 'post',
+            hashtags: '#szemelyes #gondolatok',
+            first_comment: 'Ti hogyan kezelitek a pörgős napokat?',
+          },
           media_urls: [
-            'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80',
+            'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=1200&q=80',
           ],
         },
       },
       {
-        label: '⚡ 4. Kétféle FB egy hívással (Split: Oldal + Profil)',
+        label: '🎥 3. YouTube Shorts + Threads Poszt',
+        payload: {
+          scheduled_at: getIsoDaysAhead(2),
+          youtube: {
+            target_account: 'acc_yt_techmag',
+            title: 'Hogyan automatizálj 10 perc alatt? ⚡ #Shorts',
+            description: 'Rövid összefoglaló a leghatékonyabb automatizációs lépésekről.\n\n#shorts #automation',
+            format: 'shorts',
+            visibility: 'public',
+          },
+          threads: {
+            target_account: 'acc_th_napicsabi',
+            text: 'Gondolatébresztő a mai automatizációs trendekről. Mi a véleményetek?',
+          },
+          media_urls: [
+            'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=1200&q=80',
+          ],
+        },
+      },
+      {
+        label: '🌐 4. Teljes Multi-Account JSON (FB + IG + YT + Threads)',
+        payload: {
+          scheduled_at: getIsoDaysAhead(3),
+          facebook: {
+            target_account: 'acc_fb_vellionation',
+            text: '📢 Üzleti közlemény a Facebook oldalunkon!',
+            format: 'post',
+            hashtags: '#b2b #marketing',
+          },
+          instagram: {
+            target_account: 'acc_ig_vellionation',
+            text: '✨ Exkluzív vizuális betekintés az Instánkon!',
+            format: 'post',
+            hashtags: '#instadaily #behindthescenes',
+          },
+          youtube: {
+            target_account: 'acc_yt_techmag',
+            title: 'Hivatalos Bemutató Videó 2026',
+            description: 'Teljes bemutató a csatornánkon!',
+            format: 'video',
+            visibility: 'public',
+          },
+          threads: {
+            target_account: 'acc_th_napicsabi',
+            text: 'Friss összefoglaló kikerült minden felületre, lessétek meg!',
+          },
+          media_urls: [
+            'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1200&q=80',
+          ],
+        },
+      },
+      {
+        label: '⚡ 5. Kétféle FB egy hívással (Split: Oldal + Profil)',
         payload: {
           base_text: 'Kétféle Facebook célzás egyetlen hívással!',
           scheduled_at: getIsoDaysAhead(3),
@@ -1027,6 +1087,58 @@ print(response.json())`;
                     <div className="text-[10px] text-zinc-400">
                       Adatbázis tábla: <code className="text-emerald-400">social_accounts</code>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* PROFILE & ACCOUNT TARGETING GUIDE */}
+              <div className="p-4 rounded-xl bg-blue-950/40 border border-blue-500/30 space-y-2.5 text-xs text-zinc-200">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="font-bold text-emerald-300 text-sm">
+                    🎯 Platform-specifikus JSON & Explicit Célfiók Választás
+                  </span>
+                </div>
+                <p className="text-zinc-300 leading-relaxed">
+                  Mivel az app egy sokfiókos ügynökségi szolgáltatás (akár 10 Facebook fiók, 10 Instagram, 6 YouTube, több Threads), <strong>mindig explicit módon meg kell adni a platformon belüli célfiókot</strong> (<code className="text-emerald-300">target_account</code> vagy <code className="text-emerald-300">account_id</code>). Nincs kitalált alapértelmezett fiók! Minden platform a saját JSON blokkjában kapja meg a specifikus szöveget, formátumot, hashtageket és első kommentet:
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+                  <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-blue-500/20 font-mono text-[11px] space-y-1">
+                    <div className="text-blue-400 font-semibold">1. Facebook Blokk (Üzleti Oldal vagy Profil):</div>
+                    <code className="text-zinc-300 block">{`"facebook": {`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"target_account": "acc_fb_vellionation",`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"text": "Üzleti poszt...",`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"format": "post", // 'post' | 'reel' | 'story'`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"hashtags": "#b2b #marketing",`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"first_comment": "Link a kommentben!"`}</code>
+                    <code className="text-zinc-300 block">{`}`}</code>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-purple-500/20 font-mono text-[11px] space-y-1">
+                    <div className="text-purple-400 font-semibold">2. Instagram Blokk (Feed / Reel / Story):</div>
+                    <code className="text-zinc-300 block">{`"instagram": {`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"target_account": "acc_ig_vellionation",`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"text": "Insta szöveg...",`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"format": "reel", // 'reel' | 'post' | 'story'`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"hashtags": "#reels #instadaily",`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"first_comment": "Vélemények? 👇"`}</code>
+                    <code className="text-zinc-300 block">{`}`}</code>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-rose-500/20 font-mono text-[11px] space-y-1">
+                    <div className="text-rose-400 font-semibold">3. YouTube Blokk (Video vagy Shorts):</div>
+                    <code className="text-zinc-300 block">{`"youtube": {`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"target_account": "acc_yt_techmag",`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"title": "Videó vagy Shorts Cím",`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"description": "Leírás...",`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"format": "shorts", // 'video' | 'shorts'`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"visibility": "public"`}</code>
+                    <code className="text-zinc-300 block">{`}`}</code>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-emerald-500/20 font-mono text-[11px] space-y-1">
+                    <div className="text-emerald-400 font-semibold">4. Threads Blokk:</div>
+                    <code className="text-zinc-300 block">{`"threads": {`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"target_account": "acc_th_napicsabi",`}</code>
+                    <code className="text-zinc-300 block pl-3">{`"text": "Gondolatmenet Threads-re..."`}</code>
+                    <code className="text-zinc-300 block">{`}`}</code>
                   </div>
                 </div>
               </div>

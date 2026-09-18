@@ -30,6 +30,9 @@ import {
   Building2,
   User,
   Users,
+  Check,
+  ExternalLink,
+  Layers,
 } from 'lucide-react';
 import {
   Platform,
@@ -42,6 +45,7 @@ import {
   YouTubeCustomContent,
   ThreadsCustomContent,
   FacebookCustomContent,
+  SocialAccount,
 } from '../types';
 import {
   PLATFORM_CONFIGS,
@@ -51,6 +55,10 @@ import {
 import { PlatformIcon } from './PlatformIcon';
 import { apiUploadMedia } from '../lib/supabase';
 import { canDeletePost } from '../lib/postPermissions';
+import {
+  getStoredMultiAccounts,
+  fetchServerSocialAccounts,
+} from '../lib/socialAccounts';
 
 interface PostComposerProps {
   initialPost?: Post | null;
@@ -72,6 +80,9 @@ interface PostComposerProps {
   setCurrentCustomContent: (c: CustomContent) => void;
   currentScheduledAt: string;
   setCurrentScheduledAt: (s: string) => void;
+  currentAccountIds?: string[];
+  setCurrentAccountIds?: (ids: string[]) => void;
+  onOpenSocialModal?: () => void;
 }
 
 export const PostComposer: React.FC<PostComposerProps> = ({
@@ -90,6 +101,9 @@ export const PostComposer: React.FC<PostComposerProps> = ({
   setCurrentCustomContent,
   currentScheduledAt,
   setCurrentScheduledAt,
+  currentAccountIds,
+  setCurrentAccountIds,
+  onOpenSocialModal,
 }) => {
   const [activeTab, setActiveTab] = useState<'general' | Platform>('general');
   const [isUploading, setIsUploading] = useState(false);
@@ -102,6 +116,99 @@ export const PostComposer: React.FC<PostComposerProps> = ({
 
   // Active single platform - enforce 1 post = 1 platform policy
   const selectedPlatform: Platform = currentPlatforms[0] || 'instagram';
+
+  // Connected Accounts State & Multi-Account Selection
+  const [availableAccounts, setAvailableAccounts] = useState<SocialAccount[]>(() =>
+    getStoredMultiAccounts()
+  );
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(() => {
+    if (initialPost?.account_ids && initialPost.account_ids.length > 0) {
+      return initialPost.account_ids;
+    }
+    if (currentAccountIds && currentAccountIds.length > 0) {
+      return currentAccountIds;
+    }
+    return ['acc_fb_napicsabi'];
+  });
+  const [accountPlatformFilter, setAccountPlatformFilter] = useState<'all' | Platform>('all');
+
+  useEffect(() => {
+    fetchServerSocialAccounts().then((accs) => {
+      if (accs && accs.length > 0) {
+        setAvailableAccounts(accs);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (initialPost?.account_ids && initialPost.account_ids.length > 0) {
+      setSelectedAccountIds(initialPost.account_ids);
+      if (setCurrentAccountIds) {
+        setCurrentAccountIds(initialPost.account_ids);
+      }
+    }
+  }, [initialPost]);
+
+  useEffect(() => {
+    if (currentAccountIds && currentAccountIds.length > 0) {
+      setSelectedAccountIds(currentAccountIds);
+    }
+  }, [currentAccountIds]);
+
+  // Handle single account selection
+  const handleSelectAccount = (account: SocialAccount) => {
+    const newIds = [account.id];
+    setSelectedAccountIds(newIds);
+    if (setCurrentAccountIds) {
+      setCurrentAccountIds(newIds);
+    }
+    setCurrentPlatforms([account.basePlatform]);
+    setActiveTab(account.basePlatform);
+
+    if (account.basePlatform === 'facebook') {
+      const isPersonal = account.platform === 'facebook_profile' || account.accountType === 'personal';
+      setCurrentCustomContent({
+        ...currentCustomContent,
+        facebook: {
+          ...currentCustomContent.facebook,
+          targetType: isPersonal ? 'profile' : 'page',
+          targetName: account.name,
+        },
+      });
+    } else if (account.basePlatform === 'youtube') {
+      setCurrentCustomContent({
+        ...currentCustomContent,
+        youtube: {
+          ...currentCustomContent.youtube,
+          channelId: account.id,
+          channelName: account.name,
+        },
+      });
+    }
+  };
+
+  // Handle multi-account toggle
+  const handleToggleAccount = (account: SocialAccount, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    let updated: string[];
+    if (selectedAccountIds.includes(account.id)) {
+      if (selectedAccountIds.length > 1) {
+        updated = selectedAccountIds.filter((id) => id !== account.id);
+      } else {
+        return;
+      }
+    } else {
+      updated = [...selectedAccountIds, account.id];
+    }
+    setSelectedAccountIds(updated);
+    if (setCurrentAccountIds) {
+      setCurrentAccountIds(updated);
+    }
+    if (!currentPlatforms.includes(account.basePlatform)) {
+      setCurrentPlatforms([account.basePlatform]);
+      setActiveTab(account.basePlatform);
+    }
+  };
 
   // Sync initial post if provided
   useEffect(() => {
@@ -231,6 +338,19 @@ export const PostComposer: React.FC<PostComposerProps> = ({
         scheduleIso = new Date().toISOString();
       }
 
+      const selectedAccObjects = availableAccounts.filter((a) =>
+        selectedAccountIds.includes(a.id)
+      );
+      const targetAccountsPayload = selectedAccObjects.map((a) => ({
+        id: a.id,
+        name: a.name,
+        platform: a.platform,
+        basePlatform: a.basePlatform,
+        handle: a.handle,
+        avatarUrl: a.avatarUrl,
+        accountType: a.accountType,
+      }));
+
       await onSave(
         {
           id: initialPost?.id,
@@ -241,6 +361,8 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           custom_content: currentCustomContent,
           platforms: [selectedPlatform],
           error_log: null,
+          account_ids: selectedAccountIds,
+          target_accounts: targetAccountsPayload,
         },
         action
       );
@@ -279,61 +401,218 @@ export const PostComposer: React.FC<PostComposerProps> = ({
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-4 p-4">
-        {/* 1. Single Platform Selector (One post = One platform policy) */}
-        <div className="space-y-2">
+        {/* 1. Célfiók & Célplatform Kiválasztása */}
+        <div className="space-y-2.5 p-3 rounded-xl bg-[#121620] border border-white/[0.08]">
           <div className="flex items-center justify-between">
-            <label className="text-[11px] font-mono font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Célplatform (Egy poszt = Egy platform)
-            </label>
-            <span className="text-[10px] font-mono text-slate-400 bg-white/[0.04] px-2 py-0.5 rounded border border-white/[0.06]">
-              Külön képarány & megjelenés
-            </span>
+            <div className="flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-emerald-400" />
+              <label className="text-[11px] font-mono font-semibold text-emerald-400 uppercase tracking-wider">
+                Célfiók & Platform Időzítés
+              </label>
+            </div>
+            {onOpenSocialModal && (
+              <button
+                type="button"
+                onClick={onOpenSocialModal}
+                className="text-[11px] px-2 py-0.5 rounded bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 border border-white/[0.08] flex items-center gap-1 transition-colors"
+                id="composer-manage-accounts-btn"
+              >
+                <Plus className="w-3 h-3 text-emerald-400" />
+                <span>Új fiók / Kezelés</span>
+              </button>
+            )}
           </div>
 
-          {/* Rule banner explaining why 1 post = 1 platform */}
-          <div className="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/20 text-[11px] text-emerald-300/90 flex items-start gap-2">
-            <Info className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <p className="leading-relaxed">
-              <strong>Minden platform eltérő képméretet és formátumot igényel</strong> (pl. Instagram Story/Reel 9:16, YouTube 16:9, Facebook Feed 1:1 / 1.91:1). Ezért egy bejegyzés egy adott felülethez készül a tökéletes, torzításmentes megjelenésért.
-            </p>
-          </div>
+          <p className="text-[11px] text-slate-400">
+            Válaszd ki, melyik profilra, oldalra vagy csatornára menjen az időzítés (akár több fiók is kijelölhető):
+          </p>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {(['instagram', 'facebook', 'youtube', 'threads'] as Platform[]).map((plat) => {
-              const isSelected = selectedPlatform === plat;
-              const config = PLATFORM_CONFIGS[plat];
-
+          {/* Platform Filter Chips */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+            {[
+              { id: 'all', label: 'Összes fiók', count: availableAccounts.length },
+              {
+                id: 'facebook',
+                label: 'Facebook',
+                count: availableAccounts.filter((a) => a.basePlatform === 'facebook').length,
+              },
+              {
+                id: 'youtube',
+                label: 'YouTube',
+                count: availableAccounts.filter((a) => a.basePlatform === 'youtube').length,
+              },
+              {
+                id: 'instagram',
+                label: 'Instagram',
+                count: availableAccounts.filter((a) => a.basePlatform === 'instagram').length,
+              },
+              {
+                id: 'threads',
+                label: 'Threads',
+                count: availableAccounts.filter((a) => a.basePlatform === 'threads').length,
+              },
+            ].map((tab) => {
+              const isActive = accountPlatformFilter === tab.id;
               return (
                 <button
-                  key={plat}
+                  key={tab.id}
                   type="button"
-                  onClick={() => handleSelectPlatform(plat)}
-                  className={`p-2.5 rounded-xl border flex flex-col gap-1 transition-all text-left relative ${
-                    isSelected
-                      ? 'bg-[#181d2a] border-emerald-500 text-white shadow-md ring-2 ring-emerald-500/30'
-                      : 'bg-[#121620] text-slate-400 border-white/[0.06] hover:border-white/[0.15] hover:text-slate-200'
+                  onClick={() => setAccountPlatformFilter(tab.id as 'all' | Platform)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border flex items-center gap-1.5 whitespace-nowrap transition-all ${
+                    isActive
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs'
+                      : 'bg-[#0d1117] text-slate-400 border-white/[0.06] hover:text-slate-200 hover:border-white/[0.12]'
                   }`}
-                  id={`select-platform-${plat}`}
                 >
-                  <div className="flex items-center justify-between w-full">
-                    <div className="flex items-center gap-1.5">
-                      <PlatformIcon platform={plat} size="sm" />
-                      <span className="text-xs font-bold capitalize">{plat}</span>
-                    </div>
-                    {isSelected && (
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    )}
-                  </div>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    {plat === 'instagram' && '1:1, 4:5 v. 9:16'}
-                    {plat === 'facebook' && '1.91:1 v. 9:16'}
-                    {plat === 'youtube' && '16:9 v. 9:16 Shorts'}
-                    {plat === 'threads' && '1:1 / 500 kar.'}
+                  <span>{tab.label}</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                    isActive ? 'bg-emerald-500/30 text-emerald-200' : 'bg-white/[0.06] text-slate-400'
+                  }`}>
+                    {tab.count}
                   </span>
                 </button>
               );
             })}
+          </div>
+
+          {/* Account Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+            {availableAccounts
+              .filter((acc) => accountPlatformFilter === 'all' || acc.basePlatform === accountPlatformFilter)
+              .map((acc) => {
+                const isSelected = selectedAccountIds.includes(acc.id);
+                const isPersonal = acc.platform === 'facebook_profile' || acc.accountType === 'personal';
+                return (
+                  <div
+                    key={acc.id}
+                    onClick={() => handleSelectAccount(acc)}
+                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-2.5 cursor-pointer transition-all text-left relative ${
+                      isSelected
+                        ? 'bg-[#181d2a] border-emerald-500/80 shadow-md ring-2 ring-emerald-500/30'
+                        : 'bg-[#0d1117] text-slate-400 border-white/[0.06] hover:border-white/[0.15] hover:text-slate-200'
+                    }`}
+                    id={`account-card-${acc.id}`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="relative shrink-0">
+                        <img
+                          src={acc.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=face'}
+                          alt={acc.name}
+                          className="w-9 h-9 rounded-full object-cover border border-white/[0.15]"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute -bottom-1 -right-1">
+                          <PlatformIcon platform={acc.basePlatform} size="xs" />
+                        </div>
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-xs font-bold truncate ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                            {acc.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono truncate">
+                            {acc.handle || `@${acc.name.toLowerCase().replace(/\s+/g, '')}`}
+                          </span>
+                          <span className={`text-[9px] px-1 py-0.2 rounded font-mono ${
+                            acc.basePlatform === 'youtube'
+                              ? 'bg-red-500/15 text-red-300 border border-red-500/25'
+                              : isPersonal
+                                ? 'bg-slate-500/15 text-slate-300 border border-slate-500/25'
+                                : 'bg-blue-500/15 text-blue-300 border border-blue-500/25'
+                          }`}>
+                            {acc.basePlatform === 'youtube'
+                              ? '▶️ Csatorna'
+                              : isPersonal
+                                ? '👤 Magán'
+                                : '🏢 Üzleti'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Checkbox toggle button */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleToggleAccount(acc, e)}
+                      title={isSelected ? 'Kijelölés megszüntetése' : 'Hozzáadás az időzítéshez'}
+                      className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 border transition-all ${
+                        isSelected
+                          ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-xs'
+                          : 'bg-white/[0.04] text-transparent border-white/[0.12] hover:border-white/[0.25]'
+                      }`}
+                    >
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                    </button>
+                  </div>
+                );
+              })}
+          </div>
+
+          {/* Active target accounts summary */}
+          <div className="p-2 rounded-lg bg-emerald-950/20 border border-emerald-500/20 flex items-center justify-between text-[11px] text-emerald-300">
+            <div className="flex items-center gap-1.5 overflow-hidden">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="truncate">
+                Időzítés célpontjai: <strong className="text-white">
+                  {availableAccounts
+                    .filter((a) => selectedAccountIds.includes(a.id))
+                    .map((a) => a.name)
+                    .join(', ') || 'Nincs kiválasztva'}
+                </strong>
+              </span>
+            </div>
+            <span className="text-[10px] font-mono text-emerald-400/80 bg-emerald-500/10 px-1.5 py-0.5 rounded shrink-0">
+              API szinkron kész
+            </span>
+          </div>
+
+          {/* Quick Platform Switcher Buttons */}
+          <div className="pt-2 border-t border-white/[0.06]">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] font-mono uppercase text-slate-400">
+                Aktív felület & Formátum (Egy poszt = Egy platform)
+              </span>
+              <span className="text-[10px] font-mono text-slate-500">
+                Külön képarány & megjelenés
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {(['instagram', 'facebook', 'youtube', 'threads'] as Platform[]).map((plat) => {
+                const isSelected = selectedPlatform === plat;
+                return (
+                  <button
+                    key={plat}
+                    type="button"
+                    onClick={() => handleSelectPlatform(plat)}
+                    className={`p-2 rounded-lg border flex flex-col gap-0.5 transition-all text-left ${
+                      isSelected
+                        ? 'bg-[#181d2a] border-emerald-500 text-white shadow-xs ring-1 ring-emerald-500/40'
+                        : 'bg-[#0d1117] text-slate-400 border-white/[0.06] hover:border-white/[0.12] hover:text-slate-200'
+                    }`}
+                    id={`select-platform-${plat}`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center gap-1.5">
+                        <PlatformIcon platform={plat} size="xs" />
+                        <span className="text-xs font-bold capitalize">{plat}</span>
+                      </div>
+                      {isSelected && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      )}
+                    </div>
+                    <span className="text-[9px] text-slate-500 font-mono">
+                      {plat === 'instagram' && '1:1, 4:5 v. 9:16'}
+                      {plat === 'facebook' && '1.91:1 v. 9:16'}
+                      {plat === 'youtube' && '16:9 v. 9:16 Shorts'}
+                      {plat === 'threads' && '1:1 / 500 kar.'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -782,6 +1061,55 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                 </span>
               </div>
 
+              {/* Connected YouTube Channel Quick Selector */}
+              <div>
+                <label className="block text-[11px] font-mono font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center justify-between">
+                  <span>Cél YouTube Csatorna ({availableAccounts.filter((a) => a.basePlatform === 'youtube').length})</span>
+                  <span className="text-[10px] text-red-400 font-normal">Kattints a csatorna váltásához</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {availableAccounts
+                    .filter((a) => a.basePlatform === 'youtube')
+                    .map((channel) => {
+                      const isSelected =
+                        selectedAccountIds.includes(channel.id) ||
+                        currentCustomContent.youtube?.channelId === channel.id;
+                      return (
+                        <button
+                          key={channel.id}
+                          type="button"
+                          onClick={() => {
+                            handleSelectAccount(channel);
+                          }}
+                          className={`p-2 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                            isSelected
+                              ? 'bg-red-950/40 border-red-500 text-white ring-1 ring-red-500/40 shadow-xs'
+                              : 'bg-[#0d1117] border-white/[0.06] text-slate-400 hover:text-slate-200 hover:border-white/[0.15]'
+                          }`}
+                        >
+                          <img
+                            src={channel.avatarUrl}
+                            alt={channel.name}
+                            className="w-7 h-7 rounded-full object-cover shrink-0 border border-red-500/30"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold truncate leading-tight">
+                              {channel.name}
+                            </div>
+                            <div className="text-[9px] text-slate-500 font-mono truncate">
+                              {channel.handle}
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <Check className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+
               {/* YouTube Format Selector: Video vs Shorts */}
               <div>
                 <label className="block text-[11px] font-mono font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
@@ -1002,6 +1330,59 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 uppercase">
                     {currentCustomContent.facebook?.format || 'post'}
                   </span>
+                </div>
+              </div>
+
+              {/* Connected Facebook Account/Page Quick Selector */}
+              <div>
+                <label className="block text-[11px] font-mono font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center justify-between">
+                  <span>Cél Facebook Fiók vagy Oldal ({availableAccounts.filter((a) => a.basePlatform === 'facebook').length})</span>
+                  <span className="text-[10px] text-blue-400 font-normal">Kattints a fiók váltásához</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {availableAccounts
+                    .filter((a) => a.basePlatform === 'facebook')
+                    .map((account) => {
+                      const isSelected = selectedAccountIds.includes(account.id);
+                      const isPersonal =
+                        account.platform === 'facebook_profile' || account.accountType === 'personal';
+                      return (
+                        <button
+                          key={account.id}
+                          type="button"
+                          onClick={() => {
+                            handleSelectAccount(account);
+                          }}
+                          className={`p-2 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                            isSelected
+                              ? 'bg-blue-950/40 border-blue-500 text-white ring-1 ring-blue-500/40 shadow-xs'
+                              : 'bg-[#0d1117] border-white/[0.06] text-slate-400 hover:text-slate-200 hover:border-white/[0.15]'
+                          }`}
+                        >
+                          <img
+                            src={account.avatarUrl}
+                            alt={account.name}
+                            className="w-7 h-7 rounded-full object-cover shrink-0 border border-blue-500/30"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold truncate leading-tight">
+                              {account.name}
+                            </div>
+                            <div className="text-[9px] text-slate-500 font-mono truncate flex items-center gap-1">
+                              <span>{account.handle}</span>
+                              <span>•</span>
+                              <span className={isPersonal ? 'text-slate-400' : 'text-blue-400 font-semibold'}>
+                                {isPersonal ? 'Profil' : 'Oldal'}
+                              </span>
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
 

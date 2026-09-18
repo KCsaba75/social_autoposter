@@ -370,8 +370,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {onOpenSocialModal && (
                 <button
                   onClick={onOpenSocialModal}
-                  className="text-[10px] text-blue-400 hover:text-blue-300 hover:underline font-mono flex items-center gap-1"
-                  title="Social platformok és bejelentkezési adatok kezelése"
+                  className="px-1.5 py-0.5 rounded bg-blue-500/10 hover:bg-blue-500/20 text-[10px] text-blue-400 hover:text-blue-300 font-mono flex items-center gap-1 border border-blue-500/25 transition-all"
+                  title="Social platformok és bejelentkezési adatok kezelése (Hozzáadás, Szerkesztés, Törlés)"
                   id="sidebar-channels-connect-btn"
                 >
                   <Link2 className="w-2.5 h-2.5" />

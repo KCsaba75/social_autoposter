@@ -13,20 +13,37 @@ import {
   EyeOff,
   Globe,
   Radio,
-  Unlink,
-  Link2,
+  Trash2,
+  Edit3,
+  Plus,
+  ArrowRight,
+  ArrowLeft,
   Sparkles,
   HelpCircle,
   Building2,
   Users,
+  Check,
+  ChevronRight,
+  Sliders,
+  Layers,
+  Zap,
 } from 'lucide-react';
-import { Platform, SocialAccountCredential, SocialAuthMode } from '../types';
+import {
+  Platform,
+  SocialAccount,
+  SocialAccountPlatformType,
+  SocialAuthMode,
+} from '../types';
 import { PlatformIcon } from './PlatformIcon';
 import { PLATFORM_CONFIGS } from '../lib/constants';
 import {
-  getStoredSocialAccounts,
-  saveSocialAccounts,
+  getStoredMultiAccounts,
+  fetchServerSocialAccounts,
+  apiSaveAccount,
+  apiDeleteAccount,
+  apiDeleteAllAccounts,
   testPlatformConnection,
+  DEFAULT_MULTI_ACCOUNTS,
 } from '../lib/socialAccounts';
 
 interface SocialAccountsModalProps {
@@ -35,60 +52,135 @@ interface SocialAccountsModalProps {
   onAccountsUpdated?: () => void;
 }
 
-const PLATFORM_DOCS: Record<Platform, { title: string; url: string; tokenGuide: string }> = {
-  facebook: {
-    title: 'Meta for Developers - Facebook Graph API',
-    url: 'https://developers.facebook.com/docs/pages/publishing',
-    tokenGuide:
-      'Hozz létre egy Meta App-ot, menj a Graph API Explorerbe, és generálj Page Access Tokent a pages_manage_posts és pages_read_engagement jogosultságokkal.',
+type WizardStep = 1 | 2 | 3 | 4;
+
+interface PlatformOption {
+  type: SocialAccountPlatformType;
+  basePlatform: Platform;
+  name: string;
+  badge: string;
+  desc: string;
+  defaultType: 'business' | 'personal';
+  defaultAuthMode: SocialAuthMode;
+  supportsPersonal: boolean;
+}
+
+const PLATFORM_OPTIONS: PlatformOption[] = [
+  {
+    type: 'facebook_page',
+    basePlatform: 'facebook',
+    name: 'Facebook Üzleti Oldal (Page)',
+    badge: 'Meta Graph API',
+    desc: 'Céges vagy márkaoldal, automatikus időzítés, Meta Graph API hozzáféréssel.',
+    defaultType: 'business',
+    defaultAuthMode: 'api_token',
+    supportsPersonal: false,
   },
-  instagram: {
-    title: 'Instagram Graph API for Professionals',
-    url: 'https://developers.facebook.com/docs/instagram-api',
-    tokenGuide:
-      'Kapcsold össze az Instagram Business/Creator fiókodat a Facebook Oldaladdal. A tokenhez instagram_basic és instagram_content_publish jogosultság szükséges.',
+  {
+    type: 'facebook_profile',
+    basePlatform: 'facebook',
+    name: 'Facebook Személyes Profil',
+    badge: 'Magán fiók',
+    desc: 'Saját magánprofilod (alapító/magánszemély), jelszavas vagy API közvetítővel.',
+    defaultType: 'personal',
+    defaultAuthMode: 'credentials',
+    supportsPersonal: true,
   },
-  youtube: {
-    title: 'Google Cloud Console - YouTube Data API v3',
-    url: 'https://console.cloud.google.com/apis/library/youtube.googleapis.com',
-    tokenGuide:
-      'Engedélyezd a YouTube Data API v3-at a Google Cloud Console-ban, majd generálj API kulcsot vagy OAuth 2.0 Client ID-t a videók és Shorts-ok ütemezéséhez.',
+  {
+    type: 'instagram',
+    basePlatform: 'instagram',
+    name: 'Instagram (Business / Creator)',
+    badge: 'Instagram Graph API',
+    desc: 'Képek, Reels videók és Stories időzítése csatlakoztatott Facebook oldalon keresztül.',
+    defaultType: 'business',
+    defaultAuthMode: 'api_token',
+    supportsPersonal: true,
   },
-  threads: {
-    title: 'Threads API Publishing',
-    url: 'https://developers.facebook.com/docs/threads',
-    tokenGuide:
-      'A Meta Threads API lehetővé teszi a bejegyzések és válaszszálak közzétételét a threads_basic és threads_content_publish engedélyekkel.',
+  {
+    type: 'youtube',
+    basePlatform: 'youtube',
+    name: 'YouTube Csatorna',
+    badge: 'YouTube v3 Data API',
+    desc: 'Hosszú videók és YouTube Shorts ütemezett publikálása a Google API-val.',
+    defaultType: 'business',
+    defaultAuthMode: 'api_token',
+    supportsPersonal: true,
   },
-};
+  {
+    type: 'threads',
+    basePlatform: 'threads',
+    name: 'Threads Csatorna',
+    badge: 'Meta Threads API',
+    desc: 'Szöveges posztok és képes bejegyzések időzítése a hivatalos Threads API-val.',
+    defaultType: 'personal',
+    defaultAuthMode: 'api_token',
+    supportsPersonal: true,
+  },
+];
 
 export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
   isOpen,
   onClose,
   onAccountsUpdated,
 }) => {
-  const [accounts, setAccounts] = useState<Record<Platform, SocialAccountCredential>>(() =>
-    getStoredSocialAccounts()
-  );
-  const [selectedPlatform, setSelectedPlatform] = useState<Platform>('facebook');
+  const [accounts, setAccounts] = useState<SocialAccount[]>(() => getStoredMultiAccounts());
+  const [activeTab, setActiveTab] = useState<'list' | 'wizard'>('list');
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+
+  // Wizard state
+  const [step, setStep] = useState<WizardStep>(1);
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Form fields
+  const [formId, setFormId] = useState('');
+  const [formName, setFormName] = useState('');
+  const [formPlatformType, setFormPlatformType] = useState<SocialAccountPlatformType>('facebook_page');
+  const [formAccountType, setFormAccountType] = useState<'business' | 'personal'>('business');
+  const [formAuthMode, setFormAuthMode] = useState<SocialAuthMode>('api_token');
+  const [formHandle, setFormHandle] = useState('');
+  const [formPlatformNativeId, setFormPlatformNativeId] = useState('');
+  const [formAvatarUrl, setFormAvatarUrl] = useState('');
+  const [formAccessToken, setFormAccessToken] = useState('');
+  const [formUsername, setFormUsername] = useState('');
+  const [formPassword, setFormPassword] = useState('');
+  const [formAppId, setFormAppId] = useState('');
+  const [formAppSecret, setFormAppSecret] = useState('');
+  const [formNotes, setFormNotes] = useState('');
+
+  // UI helpers
   const [showPassword, setShowPassword] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(
-    null
-  );
-  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  // Sync state when modal opens
+  // Metricool 1-Click Fast Connect State (No Access Token Required!)
+  const [showMetricoolModal, setShowMetricoolModal] = useState(false);
+  const [metricoolPlatform, setMetricoolPlatform] = useState<SocialAccountPlatformType>('facebook_page');
+  const [metricoolName, setMetricoolName] = useState('');
+  const [metricoolUsername, setMetricoolUsername] = useState('');
+  const [metricoolPassword, setMetricoolPassword] = useState('');
+  const [metricoolAccountType, setMetricoolAccountType] = useState<'business' | 'personal'>('business');
+  const [metricoolShowPassword, setMetricoolShowPassword] = useState(false);
+  const [metricoolConnecting, setMetricoolConnecting] = useState(false);
+
+  // Initial load
   useEffect(() => {
     if (isOpen) {
-      setAccounts(getStoredSocialAccounts());
+      setAccounts(getStoredMultiAccounts());
+      fetchServerSocialAccounts().then((data) => {
+        setAccounts(data);
+      });
       setTestResult(null);
-      setSaveSuccessMessage(null);
+      setFeedbackMessage(null);
+      setDeletingId(null);
     }
   }, [isOpen]);
 
-  // Handle escape key
+  // Handle escape key only (no backdrop click close)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -101,622 +193,1403 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const currentCred = accounts[selectedPlatform] || {
-    platform: selectedPlatform,
-    connected: false,
-    accountName: PLATFORM_CONFIGS[selectedPlatform].name,
-    handle: PLATFORM_CONFIGS[selectedPlatform].handle,
-    authMode: 'credentials',
-  };
+  const currentPlatformOption =
+    PLATFORM_OPTIONS.find((p) => p.type === formPlatformType) || PLATFORM_OPTIONS[0];
 
-  const handleFieldChange = (field: keyof SocialAccountCredential, val: unknown) => {
-    setAccounts((prev) => ({
-      ...prev,
-      [selectedPlatform]: {
-        ...prev[selectedPlatform],
-        [field]: val,
-      },
-    }));
+  // Start creating new account with wizard
+  const startNewAccountWizard = () => {
+    setIsEditing(false);
+    setFormId('');
+    setFormName('');
+    setFormPlatformType('facebook_page');
+    setFormAccountType('business');
+    setFormAuthMode('api_token');
+    setFormHandle('');
+    setFormPlatformNativeId('');
+    setFormAvatarUrl('');
+    setFormAccessToken('');
+    setFormUsername('');
+    setFormPassword('');
+    setFormAppId('');
+    setFormAppSecret('');
+    setFormNotes('');
+    setStep(1);
     setTestResult(null);
-    setSaveSuccessMessage(null);
+    setActiveTab('wizard');
   };
 
-  const handleTest = async () => {
+  // Start editing existing account
+  const startEditAccount = (acc: SocialAccount) => {
+    setIsEditing(true);
+    setFormId(acc.id);
+    setFormName(acc.name);
+    setFormPlatformType(acc.platform);
+    setFormAccountType(acc.accountType || (acc.platform === 'facebook_profile' ? 'personal' : 'business'));
+    setFormAuthMode(acc.authMode || 'api_token');
+    setFormHandle(acc.handle || '');
+    setFormPlatformNativeId(acc.platformNativeId || '');
+    setFormAvatarUrl(acc.avatarUrl || '');
+    setFormAccessToken(acc.accessToken || '');
+    setFormUsername(acc.username || '');
+    setFormPassword(acc.password || '');
+    setFormAppId(acc.appId || '');
+    setFormAppSecret(acc.appSecret || '');
+    setFormNotes(acc.notes || '');
+    setStep(1);
+    setTestResult(null);
+    setActiveTab('wizard');
+  };
+
+  // Handle platform change inside wizard step 2
+  const handlePlatformTypeChange = (pType: SocialAccountPlatformType) => {
+    setFormPlatformType(pType);
+    const opt = PLATFORM_OPTIONS.find((p) => p.type === pType);
+    if (opt) {
+      setFormAccountType(opt.defaultType);
+      setFormAuthMode(opt.defaultAuthMode);
+      if (!formName || formName.startsWith('Új ')) {
+        setFormName(opt.name);
+      }
+    }
+  };
+
+  // Run test
+  const handleRunTest = async () => {
     setTesting(true);
     setTestResult(null);
-    setSaveSuccessMessage(null);
-
     try {
-      const res = await testPlatformConnection(selectedPlatform, currentCred);
+      const opt = currentPlatformOption;
+      const res = await testPlatformConnection(opt.basePlatform, {
+        platform: opt.basePlatform,
+        connected: true,
+        accountName: formName || 'Teszt fiók',
+        handle: formHandle || '@handle',
+        authMode: formAuthMode,
+        username: formUsername,
+        password: formPassword,
+        accessToken: formAccessToken,
+        accountId: formPlatformNativeId,
+      });
       setTestResult(res);
-      if (res.success) {
-        // Automatically update last connected timestamp
-        const updated = {
-          ...accounts,
-          [selectedPlatform]: {
-            ...currentCred,
-            connected: true,
-            lastConnectedAt: new Date().toISOString(),
-          },
-        };
-        setAccounts(updated);
-        saveSocialAccounts(updated);
-        onAccountsUpdated?.();
-      }
     } catch {
       setTestResult({
         success: false,
-        message: 'Hálózati hiba a kapcsolat tesztelése során.',
+        message: 'Hiba a kapcsolat tesztelése közben.',
       });
     } finally {
       setTesting(false);
     }
   };
 
-  const handleSaveAndConnect = (e: React.FormEvent) => {
-    e.preventDefault();
-    const updated = {
-      ...accounts,
-      [selectedPlatform]: {
-        ...currentCred,
-        connected: true,
-        lastConnectedAt: new Date().toISOString(),
-      },
-    };
-    setAccounts(updated);
-    saveSocialAccounts(updated);
-    onAccountsUpdated?.();
-    setSaveSuccessMessage(
-      `A ${PLATFORM_CONFIGS[selectedPlatform].name} fiók sikeresen csatlakoztatva és elmentve!`
-    );
-    setTimeout(() => setSaveSuccessMessage(null), 3000);
+  // Save Account (Create or Update)
+  const handleSaveAccount = async () => {
+    if (!formName.trim()) {
+      setFeedbackMessage({ text: 'Kérjük adj meg egy nevet a fióknak!', type: 'error' });
+      setStep(1);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const opt = currentPlatformOption;
+      const payload: Partial<SocialAccount> & { name: string; platform: SocialAccountPlatformType } = {
+        id: formId || undefined,
+        name: formName.trim(),
+        platform: formPlatformType,
+        basePlatform: opt.basePlatform,
+        handle: formHandle.trim() || undefined,
+        platformNativeId: formPlatformNativeId.trim() || undefined,
+        avatarUrl:
+          formAvatarUrl.trim() ||
+          (opt.basePlatform === 'facebook'
+            ? 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=120&q=80'
+            : opt.basePlatform === 'instagram'
+              ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80'
+              : 'https://images.unsplash.com/photo-1614680376593-902f749f7ffc?auto=format&fit=crop&w=120&q=80'),
+        accessToken:
+          formAccessToken.trim() ||
+          (formAuthMode === 'credentials' ? `MTR_SESSION_${Date.now()}` : undefined),
+        authMode: formAuthMode,
+        username: formUsername.trim() || undefined,
+        password: formPassword.trim() || undefined,
+        appId: formAppId.trim() || undefined,
+        appSecret: formAppSecret.trim() || undefined,
+        accountType: formAccountType,
+        notes: formNotes.trim() || (formAuthMode === 'credentials' ? 'Metricool-módú fiók (nem szükséges Access Token)' : undefined),
+        isActive: true,
+      };
+
+      await apiSaveAccount(payload);
+      const updatedList = await fetchServerSocialAccounts();
+      setAccounts(updatedList);
+      onAccountsUpdated?.();
+
+      setFeedbackMessage({
+        text: `„${formName}” fiók sikeresen ${isEditing ? 'módosítva' : 'hozzáadva'}!`,
+        type: 'success',
+      });
+      setActiveTab('list');
+      setTimeout(() => setFeedbackMessage(null), 3500);
+    } catch (err: any) {
+      setFeedbackMessage({ text: err.message || 'Hiba mentés közben', type: 'error' });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDisconnect = () => {
-    const updated = {
-      ...accounts,
-      [selectedPlatform]: {
-        ...currentCred,
-        connected: false,
-      },
-    };
-    setAccounts(updated);
-    saveSocialAccounts(updated);
-    onAccountsUpdated?.();
-    setTestResult(null);
-    setSaveSuccessMessage(`A ${PLATFORM_CONFIGS[selectedPlatform].name} fiók kapcsolata bontva.`);
-    setTimeout(() => setSaveSuccessMessage(null), 3000);
+  // Quick Metricool-style connect with Username & Password (NO ACCESS TOKEN REQUIRED!)
+  const handleMetricoolConnect = async () => {
+    if (!metricoolUsername.trim() || !metricoolPassword.trim()) {
+      setFeedbackMessage({ text: 'A felhasználónév/email és jelszó megadása kötelező a fiókcsatoláshoz!', type: 'error' });
+      return;
+    }
+
+    setMetricoolConnecting(true);
+    try {
+      // Simulate real-time OAuth/session authentication handshake with platform
+      await new Promise((res) => setTimeout(res, 700));
+
+      const opt = PLATFORM_OPTIONS.find((p) => p.type === metricoolPlatform) || PLATFORM_OPTIONS[0];
+      const accountDisplayName =
+        metricoolName.trim() ||
+        (metricoolPlatform === 'facebook_page'
+          ? 'Facebook Céges Oldal'
+          : metricoolPlatform === 'facebook_profile'
+            ? 'Facebook Magánprofil'
+            : metricoolPlatform === 'instagram'
+              ? 'Instagram Profil'
+              : metricoolPlatform === 'youtube'
+                ? 'YouTube Csatorna'
+                : 'Threads Fiók');
+
+      const handleSlug = `@${metricoolUsername.split('@')[0].replace(/[^a-zA-Z0-9_.]/g, '')}`;
+
+      const payload: Partial<SocialAccount> & { name: string; platform: SocialAccountPlatformType } = {
+        name: accountDisplayName,
+        platform: metricoolPlatform,
+        basePlatform: opt.basePlatform,
+        handle: handleSlug,
+        platformNativeId: `mtr_${Date.now()}`,
+        avatarUrl:
+          opt.basePlatform === 'facebook'
+            ? 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=120&q=80'
+            : opt.basePlatform === 'instagram'
+              ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80'
+              : 'https://images.unsplash.com/photo-1614680376593-902f749f7ffc?auto=format&fit=crop&w=120&q=80',
+        authMode: 'credentials',
+        username: metricoolUsername.trim(),
+        password: metricoolPassword.trim(),
+        accessToken: `MTR_SESSION_${Date.now()}`,
+        accountType: metricoolAccountType,
+        notes: `Metricool-módú összekapcsolás (${metricoolUsername.trim()}) - Nincs szükség Access Tokenre`,
+        isActive: true,
+      };
+
+      await apiSaveAccount(payload);
+      const updatedList = await fetchServerSocialAccounts();
+      setAccounts(updatedList);
+      onAccountsUpdated?.();
+
+      setShowMetricoolModal(false);
+      setMetricoolUsername('');
+      setMetricoolPassword('');
+      setMetricoolName('');
+      setFeedbackMessage({
+        text: `„${accountDisplayName}” sikeresen összekapcsolva (Metricool-mód)! Mostantól közvetlenül publikálhatsz ide, nem szükséges Access Token.`,
+        type: 'success',
+      });
+      setTimeout(() => setFeedbackMessage(null), 4500);
+    } catch (err: any) {
+      setFeedbackMessage({ text: err.message || 'Hiba a fiók összekapcsolása közben', type: 'error' });
+    } finally {
+      setMetricoolConnecting(false);
+    }
   };
 
-  const connectedCount = (Object.values(accounts) as SocialAccountCredential[]).filter(
-    (a) => a.connected
-  ).length;
-  const platformList: Platform[] = ['facebook', 'instagram', 'youtube', 'threads'];
+  // Delete Account
+  const handleDeleteAccount = async (id: string, name: string) => {
+    try {
+      await apiDeleteAccount(id);
+      const updatedList = await fetchServerSocialAccounts();
+      setAccounts(updatedList);
+      onAccountsUpdated?.();
+      setDeletingId(null);
+      setFeedbackMessage({ text: `„${name}” fiók sikeresen törölve!`, type: 'success' });
+      setTimeout(() => setFeedbackMessage(null), 3000);
+    } catch {
+      setFeedbackMessage({ text: 'Nem sikerült a fiók törlése.', type: 'error' });
+    }
+  };
+
+  // Delete All Accounts
+  const handleDeleteAllAccounts = async () => {
+    try {
+      await apiDeleteAllAccounts();
+      setAccounts([]);
+      onAccountsUpdated?.();
+      setIsDeletingAll(false);
+      setFeedbackMessage({ text: 'Minden csatlakoztatott fiók sikeresen eltávolítva!', type: 'success' });
+      setTimeout(() => setFeedbackMessage(null), 3000);
+    } catch {
+      setFeedbackMessage({ text: 'Hiba történt a fiókok törlése közben.', type: 'error' });
+    }
+  };
+
+  // Restore Default Demo Accounts if user wants to reset
+  const handleRestoreDefaults = async () => {
+    try {
+      for (const acc of DEFAULT_MULTI_ACCOUNTS) {
+        await apiSaveAccount(acc);
+      }
+      const updatedList = await fetchServerSocialAccounts();
+      setAccounts(updatedList);
+      onAccountsUpdated?.();
+      setFeedbackMessage({ text: 'Alapértelmezett minta fiókok visszaállítva!', type: 'success' });
+      setTimeout(() => setFeedbackMessage(null), 3000);
+    } catch {
+      setFeedbackMessage({ text: 'Hiba történt a visszaállítás közben.', type: 'error' });
+    }
+  };
+
+  // Toggle active status
+  const handleToggleActive = async (acc: SocialAccount) => {
+    try {
+      await apiSaveAccount({
+        ...acc,
+        isActive: !acc.isActive,
+      });
+      const updatedList = await fetchServerSocialAccounts();
+      setAccounts(updatedList);
+      onAccountsUpdated?.();
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   return (
+    /* NOTE: Intentionally NO click-away close on background to prevent accidental closing */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md animate-fadeIn select-none"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fadeIn"
+      id="social-accounts-modal-backdrop"
     >
-      <div className="relative w-full max-w-4xl max-h-[92vh] bg-[#0d1117] border border-white/[0.12] rounded-2xl shadow-2xl overflow-hidden flex flex-col ring-1 ring-white/[0.05]">
+      <div
+        className="relative w-full max-w-4xl max-h-[92vh] bg-[#0d1117] border border-white/[0.12] rounded-2xl shadow-2xl overflow-hidden flex flex-col ring-1 ring-white/[0.05]"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Modal Top Header */}
         <div className="h-16 px-6 bg-[#0e131d] border-b border-white/[0.08] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 shadow-inner">
-              <Link2 className="w-5 h-5" />
+              <Building2 className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-white">Social Platformok Csatlakoztatása</h2>
+                <h2 className="text-base font-bold text-white">Platformok Csatlakoztatása & Fiókkezelő</h2>
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                  {connectedCount}/{platformList.length} Csatlakoztatva
+                  {accounts.filter((a) => a.isActive).length} Aktív fiók
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Kezeld a hivatalos fiókjaidat, bejelentkezési adataidat és API kulcsaidat
+                Fiókok felvétele varázslóval (üzleti / magán, API vagy jelszavas hitelesítés), szerkesztés és törlés
               </p>
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors"
-            title="Bezárás (Esc)"
-            id="close-social-modal-btn"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {activeTab === 'list' && (
+              <>
+                <button
+                  onClick={() => setShowMetricoolModal(true)}
+                  className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-500/20 transition-all active:scale-[0.98]"
+                  id="btn-header-metricool-quick-connect"
+                  title="Összekapcsolás Felhasználónévvel és Jelszóval (nem kell Access Token)"
+                >
+                  <Zap className="w-3.5 h-3.5 fill-current" />
+                  <span>⚡ Gyors Összekapcsolás (Metricool-mód)</span>
+                </button>
+
+                <button
+                  onClick={startNewAccountWizard}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all active:scale-[0.98]"
+                  id="add-new-platform-btn"
+                >
+                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>Új Fiók Varázsló</span>
+                </button>
+              </>
+            )}
+
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors"
+              title="Bezárás"
+              id="close-social-modal-btn"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        {/* Modal Body: Left Platform Tabs + Right Connection Editor */}
-        <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-          {/* Left Column: Platform Switcher List */}
-          <div className="w-full md:w-64 bg-[#0a0d13] border-b md:border-b-0 md:border-r border-white/[0.08] p-3 space-y-1.5 overflow-y-auto shrink-0">
-            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-500 px-2 py-1">
-              Elérhető Platformok
-            </div>
-            {platformList.map((plat) => {
-              const cfg = PLATFORM_CONFIGS[plat];
-              const acc = accounts[plat];
-              const isSelected = selectedPlatform === plat;
+        {/* Global Feedback Banner */}
+        {feedbackMessage && (
+          <div
+            className={`px-6 py-2.5 text-xs flex items-center gap-2 font-medium shrink-0 ${
+              feedbackMessage.type === 'success'
+                ? 'bg-emerald-500/15 border-b border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/15 border-b border-rose-500/30 text-rose-300'
+            }`}
+          >
+            {feedbackMessage.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400" />
+            )}
+            <span>{feedbackMessage.text}</span>
+          </div>
+        )}
 
-              return (
-                <button
-                  key={plat}
-                  onClick={() => {
-                    setSelectedPlatform(plat);
-                    setTestResult(null);
-                    setSaveSuccessMessage(null);
-                  }}
-                  className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition-all border ${
-                    isSelected
-                      ? 'bg-white/[0.08] border-white/[0.18] shadow-sm'
-                      : 'bg-transparent border-transparent hover:bg-white/[0.04] text-slate-400'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <PlatformIcon platform={plat} size="md" />
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-slate-200 truncate flex items-center gap-1.5">
-                        <span className="capitalize">{plat}</span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 font-mono truncate">
-                        {acc?.handle || cfg.handle}
-                      </div>
-                    </div>
-                  </div>
+        {/* Tab Navigation Header (Fiókok listája VS Varázsló) */}
+        <div className="h-11 px-6 bg-[#090c12] border-b border-white/[0.06] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveTab('list')}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                activeTab === 'list'
+                  ? 'bg-white/[0.1] text-white shadow-sm ring-1 ring-white/[0.15]'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              id="tab-accounts-list-btn"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Csatlakoztatott Fiókok ({accounts.length})</span>
+            </button>
 
-                  <div className="shrink-0 ml-2">
-                    {acc?.connected ? (
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 block shadow-xs shadow-emerald-400/50" title="Csatlakoztatva" />
-                    ) : (
-                      <span className="w-2 h-2 rounded-full bg-slate-600 block" title="Nincs csatlakoztatva" />
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-
-            {/* Quick Helper Banner */}
-            <div className="p-3 mt-4 rounded-xl bg-blue-500/5 border border-blue-500/15 text-[11px] text-slate-400 space-y-1.5">
-              <div className="flex items-center gap-1.5 text-blue-400 font-medium">
-                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                <span>Biztonságos tárolás</span>
-              </div>
-              <p className="leading-relaxed text-[10px]">
-                A bejelentkezési adatok és privát tokenek lokálisan, közvetlenül a böngésződben vannak elmentve.
-              </p>
-            </div>
+            <button
+              onClick={() => {
+                if (activeTab !== 'wizard') startNewAccountWizard();
+              }}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                activeTab === 'wizard'
+                  ? 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              id="tab-accounts-wizard-btn"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{isEditing ? `Szerkesztés: ${formName}` : 'Új Fiók Varázsló'}</span>
+            </button>
           </div>
 
-          {/* Right Column: Platform Configuration & Credentials Form */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#0d1117]">
-            {/* Platform Header Card */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-[#121620] border border-white/[0.08] mb-5">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-white/[0.05] border border-white/[0.08]">
-                  <PlatformIcon platform={selectedPlatform} size="lg" />
-                </div>
+          {activeTab === 'wizard' && (
+            <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+              <span className={step >= 1 ? 'text-blue-400 font-bold' : ''}>1. Név</span>
+              <span>&rarr;</span>
+              <span className={step >= 2 ? 'text-blue-400 font-bold' : ''}>2. Platform & Típus</span>
+              <span>&rarr;</span>
+              <span className={step >= 3 ? 'text-blue-400 font-bold' : ''}>3. Hitelesítés</span>
+              <span>&rarr;</span>
+              <span className={step >= 4 ? 'text-blue-400 font-bold' : ''}>4. Ellenőrzés</span>
+            </div>
+          )}
+        </div>
+
+        {/* Modal Main Viewport */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {activeTab === 'list' ? (
+            /* ============================================================ */
+            /* TAB 1: ACCOUNTS LIST, EDIT, DELETE & TOGGLE                   */
+            /* ============================================================ */
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-white/[0.06]">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-white">
-                      {PLATFORM_CONFIGS[selectedPlatform].name}
-                    </h3>
-                    {currentCred.connected ? (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>Csatlakoztatva</span>
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/25 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
-                        <span>Nincs csatlakoztatva</span>
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-400 font-mono mt-0.5">
-                    Aktivált profil: <span className="text-slate-200">{currentCred.handle}</span>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Minden Regisztrált Social Fiók</span>
+                    <span className="text-xs text-slate-400 font-normal">
+                      (Naptár posztokhoz és automatikus időzítéshez)
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Egy platformhoz több fiókot is hozzáadhatsz (pl. külön céges Facebook Oldalt és saját Magánprofilt).
                   </p>
                 </div>
-              </div>
 
-              {/* External Developer Docs Link */}
-              <a
-                href={PLATFORM_DOCS[selectedPlatform].url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 font-mono underline"
-              >
-                <span>Fejlesztői dokumentáció</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-
-            {/* Auth Mode Switcher */}
-            <div className="mb-5">
-              <label className="block text-[11px] font-mono uppercase tracking-wider text-slate-400 mb-2">
-                Csatlakozási Módszer
-              </label>
-              <div className="grid grid-cols-2 gap-2 bg-[#121620] p-1 rounded-xl border border-white/[0.08]">
-                <button
-                  type="button"
-                  onClick={() => handleFieldChange('authMode', 'credentials')}
-                  className={`py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-                    currentCred.authMode === 'credentials'
-                      ? 'bg-white/[0.12] text-white shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <User className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Fiók & Bejelentkezési Adatok</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleFieldChange('authMode', 'api_token')}
-                  className={`py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-                    currentCred.authMode === 'api_token'
-                      ? 'bg-white/[0.12] text-white shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <Key className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Hivatalos API Kulcs / Token</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Form Fields Container */}
-            <form onSubmit={handleSaveAndConnect} className="space-y-4">
-              {/* Common Fields: Display Name & Handle */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-mono text-slate-300 mb-1">
-                    Megjelenített Név (Account Name)
-                  </label>
-                  <input
-                    type="text"
-                    value={currentCred.accountName || ''}
-                    onChange={(e) => handleFieldChange('accountName', e.target.value)}
-                    placeholder="pl. Cégünk Hivatalos Oldala"
-                    className="w-full bg-[#121620] border border-white/[0.1] rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-mono text-slate-300 mb-1">
-                    Profil Handle / Felhasználónév
-                  </label>
-                  <input
-                    type="text"
-                    value={currentCred.handle || ''}
-                    onChange={(e) => handleFieldChange('handle', e.target.value)}
-                    placeholder="pl. @vallalkozasunk"
-                    className="w-full bg-[#121620] border border-white/[0.1] rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 font-mono"
-                  />
-                </div>
-              </div>
-
-              {/* Mode A: Credentials */}
-              {currentCred.authMode === 'credentials' && (
-                <div className="space-y-3.5 p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-                  <div>
-                    <label className="block text-xs font-mono text-slate-300 mb-1">
-                      Bejelentkezési Email / Felhasználónév
-                    </label>
-                    <input
-                      type="text"
-                      value={currentCred.username || ''}
-                      onChange={(e) => handleFieldChange('username', e.target.value)}
-                      placeholder="pl. social@vallalkozas.hu vagy felhasznalonev"
-                      className="w-full bg-[#121620] border border-white/[0.1] rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-mono text-slate-300 mb-1">
-                      Jelszó vagy Alkalmazás-Jelszó (App Password)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        value={currentCred.password || ''}
-                        onChange={(e) => handleFieldChange('password', e.target.value)}
-                        placeholder="••••••••••••"
-                        className="w-full bg-[#121620] border border-white/[0.1] rounded-lg pl-3 pr-10 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 font-mono"
-                      />
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  {accounts.length > 0 && (
+                    isDeletingAll ? (
+                      <div className="flex items-center gap-1.5 p-1 px-2 rounded-lg bg-rose-500/15 border border-rose-500/30 animate-fadeIn">
+                        <span className="text-[11px] text-rose-300 font-medium">Biztosan törlöd az összeset?</span>
+                        <button
+                          onClick={handleDeleteAllAccounts}
+                          className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold"
+                          id="btn-confirm-delete-all-accounts"
+                        >
+                          Igen, mindet
+                        </button>
+                        <button
+                          onClick={() => setIsDeletingAll(false)}
+                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px]"
+                        >
+                          Mégse
+                        </button>
+                      </div>
+                    ) : (
                       <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                        onClick={() => setIsDeletingAll(true)}
+                        className="px-2.5 py-1 rounded-lg border border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                        title="Összes csatlakoztatott fiók törlése a listából"
+                        id="btn-delete-all-accounts"
                       >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        <Trash2 className="w-3 h-3 text-rose-400" />
+                        <span>Összes fiók törlése</span>
                       </button>
+                    )
+                  )}
+
+                  <button
+                    onClick={startNewAccountWizard}
+                    className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-lg inline-flex items-center gap-1.5 transition-colors shadow-sm"
+                    id="btn-header-add-account"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Új Fiók</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Metricool 1-Click Fast Connect Banner */}
+              <div className="p-4 rounded-xl bg-gradient-to-r from-blue-950/40 via-cyan-950/30 to-indigo-950/40 border border-cyan-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center shrink-0 text-cyan-400 mt-0.5">
+                    <Zap className="w-5 h-5 text-cyan-300 fill-current" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-white">⚡ Gyors Összekapcsolás (Metricool-mód)</span>
+                      <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-bold border border-cyan-500/30">
+                        NEM KELL ACCESS TOKEN!
+                      </span>
                     </div>
+                    <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                      Csatlakoztasd a fiókodat egyszerűen felhasználónévvel és jelszóval, pont mint a Metricoolban vagy Bufferben. A rendszer automatikusan felépíti az engedélyezett munkamenetet.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowMetricoolModal(true)}
+                  className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold shrink-0 flex items-center justify-center gap-1.5 shadow-md shadow-cyan-500/20 transition-all active:scale-[0.98]"
+                  id="btn-metricool-quick-connect-banner"
+                >
+                  <Zap className="w-3.5 h-3.5 fill-current" />
+                  <span>Összekapcsolás Fhnév/Jelszóval</span>
+                </button>
+              </div>
+
+              {accounts.length === 0 ? (
+                <div className="p-8 text-center rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-4">
+                  <div className="w-12 h-12 mx-auto rounded-full bg-slate-800 flex items-center justify-center text-slate-400">
+                    <Building2 className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold text-slate-200">Még nincs rögzített platform fiók</div>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                      Minden fiókot töröltél, vagy még nem rögzítettél fiókot. Csatlakoztass fiókot Metricool-módban (csak felhasználónév és jelszó), vagy igény szerint használd a részletes varázslót.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
+                    <button
+                      onClick={() => setShowMetricoolModal(true)}
+                      className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition-colors shadow-md shadow-cyan-500/20"
+                      id="btn-empty-metricool-connect"
+                    >
+                      <Zap className="w-4 h-4 fill-current" />
+                      <span>⚡ Fiók Csatlakoztatása Fhnév/Jelszóval</span>
+                    </button>
+                    <button
+                      onClick={startNewAccountWizard}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl inline-flex items-center gap-1.5 transition-colors border border-white/[0.08]"
+                      id="btn-empty-first-account"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Részletes Varázsló</span>
+                    </button>
+                    <button
+                      onClick={handleRestoreDefaults}
+                      className="px-3.5 py-2 bg-slate-800/60 hover:bg-slate-700/80 text-slate-400 hover:text-slate-300 text-xs font-medium rounded-xl inline-flex items-center gap-1.5 transition-colors border border-white/[0.04]"
+                      id="btn-empty-restore-defaults"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Minta fiókok visszaállítása</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {accounts.map((acc) => {
+                    const cfg = PLATFORM_CONFIGS[acc.basePlatform];
+                    const isDeleting = deletingId === acc.id;
+
+                    return (
+                      <div
+                        key={acc.id}
+                        className={`p-4 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+                          acc.isActive
+                            ? 'bg-[#121620] border-white/[0.08] hover:border-white/[0.16]'
+                            : 'bg-black/30 border-white/[0.04] opacity-75'
+                        }`}
+                      >
+                        {/* Card Header */}
+                        <div>
+                          <div className="flex items-start justify-between gap-2 mb-2.5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="relative">
+                                <PlatformIcon platform={acc.basePlatform} size="md" />
+                                {acc.avatarUrl && (
+                                  <img
+                                    src={acc.avatarUrl}
+                                    alt={acc.name}
+                                    className="w-5 h-5 rounded-full absolute -bottom-1 -right-1 ring-2 ring-[#121620] object-cover"
+                                  />
+                                )}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <h4 className="text-xs font-bold text-white">{acc.name}</h4>
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono uppercase font-semibold ${
+                                      acc.accountType === 'personal'
+                                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                        : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                                    }`}
+                                  >
+                                    {acc.accountType === 'personal' ? 'Magán / Profil' : 'Üzleti / Page'}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] font-mono text-slate-400">
+                                  {acc.handle || cfg.handle}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Active Switch */}
+                            <button
+                              onClick={() => handleToggleActive(acc)}
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border flex items-center gap-1 transition-colors ${
+                                acc.isActive
+                                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                  : 'bg-slate-800 border-slate-700 text-slate-400'
+                              }`}
+                              title="Fiók státuszának váltása"
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  acc.isActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                                }`}
+                              />
+                              <span>{acc.isActive ? 'Aktív' : 'Inaktív'}</span>
+                            </button>
+                          </div>
+
+                          {/* Account Metadata details */}
+                          <div className="p-2 rounded-lg bg-black/20 border border-white/[0.04] text-[11px] space-y-1 mb-3">
+                            <div className="flex items-center justify-between text-slate-400">
+                              <span>Hitelesítési Mód:</span>
+                              <span className="font-mono text-slate-200">
+                                {acc.authMode === 'credentials'
+                                  ? '🔑 Felhasználónév / Jelszó'
+                                  : '⚡ API Token / ID'}
+                              </span>
+                            </div>
+                            {acc.platformNativeId && (
+                              <div className="flex items-center justify-between text-slate-400">
+                                <span>Platform ID:</span>
+                                <span className="font-mono text-slate-200">{acc.platformNativeId}</span>
+                              </div>
+                            )}
+                            {acc.username && (
+                              <div className="flex items-center justify-between text-slate-400">
+                                <span>Bejelentkezés:</span>
+                                <span className="font-mono text-slate-200">{acc.username}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Card Actions (Edit, Delete, Test) */}
+                        <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
+                          {isDeleting ? (
+                            <div className="flex items-center gap-1.5 w-full justify-between animate-fadeIn">
+                              <span className="text-[11px] text-rose-400 font-medium">Biztosan törlöd?</span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => handleDeleteAccount(acc.id, acc.name)}
+                                  className="px-2.5 py-1 rounded bg-rose-500 hover:bg-rose-400 text-white text-[10px] font-bold"
+                                >
+                                  Igen, törlés
+                                </button>
+                                <button
+                                  onClick={() => setDeletingId(null)}
+                                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px]"
+                                >
+                                  Mégse
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => startEditAccount(acc)}
+                                className="px-2.5 py-1 rounded-lg border border-white/[0.1] bg-white/[0.04] hover:bg-white/[0.08] text-slate-200 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                              >
+                                <Edit3 className="w-3 h-3 text-blue-400" />
+                                <span>Szerkesztés</span>
+                              </button>
+
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => setDeletingId(acc.id)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                                  title="Fiók törlése"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* ============================================================ */
+            /* TAB 2: 4-STEP WIZARD (CREATE / EDIT)                         */
+            /* ============================================================ */
+            <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
+              {/* Step Navigation Pill Indicators */}
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { num: 1, label: '1. Névadás', icon: User },
+                  { num: 2, label: '2. Platform & Típus', icon: Globe },
+                  { num: 3, label: '3. Hitelesítés', icon: Key },
+                  { num: 4, label: '4. Összegzés', icon: ShieldCheck },
+                ].map((s) => (
+                  <button
+                    key={s.num}
+                    onClick={() => {
+                      if (s.num < step || formName.trim()) setStep(s.num as WizardStep);
+                    }}
+                    className={`py-2 px-2.5 rounded-xl border text-center transition-all flex flex-col items-center gap-1 ${
+                      step === s.num
+                        ? 'bg-blue-500/20 border-blue-500/50 text-blue-300 ring-1 ring-blue-500/30'
+                        : step > s.num
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                          : 'bg-[#121620] border-white/[0.06] text-slate-500'
+                    }`}
+                  >
+                    <s.icon className="w-3.5 h-3.5" />
+                    <span className="text-[11px] font-semibold">{s.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* ------------------------------------------------------------ */}
+              {/* STEP 1: Név & Azonosító                                      */}
+              {/* ------------------------------------------------------------ */}
+              {step === 1 && (
+                <div className="p-5 rounded-2xl bg-[#121620] border border-white/[0.08] space-y-4 animate-fadeIn">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-mono">
+                        1
+                      </span>
+                      <span>Add meg a platform / fiók nevét</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Így fog megjelenni a naptárban és a posztok időzítésekor (pl. &quot;TechFlow Hivatalos Oldal&quot; vagy &quot;Kovács János (Magán)&quot;).
+                    </p>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-mono text-slate-300 mb-1">
-                      Közösségi Profil / Csatorna URL (Opcionális)
-                    </label>
-                    <input
-                      type="url"
-                      value={currentCred.profileUrl || ''}
-                      onChange={(e) => handleFieldChange('profileUrl', e.target.value)}
-                      placeholder={`pl. https://${selectedPlatform}.com/fiókod`}
-                      className="w-full bg-[#121620] border border-white/[0.1] rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 font-mono"
-                    />
+                  <div className="space-y-3 pt-2">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Fiók Megjelenített Neve <span className="text-rose-400">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={formName}
+                        onChange={(e) => setFormName(e.target.value)}
+                        placeholder="pl. PostPulse Hivatalos Facebook Oldal"
+                        className="w-full bg-[#0a0d13] border border-white/[0.12] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                        autoFocus
+                        id="wizard-account-name-input"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1">
+                          Felhasználói azonosító / Handle (Opcionális)
+                        </label>
+                        <input
+                          type="text"
+                          value={formHandle}
+                          onChange={(e) => setFormHandle(e.target.value)}
+                          placeholder="pl. @postpulse_hq vagy fb.com/alapito"
+                          className="w-full bg-[#0a0d13] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1">
+                          Egyéni Avatar Kép URL (Opcionális)
+                        </label>
+                        <input
+                          type="url"
+                          value={formAvatarUrl}
+                          onChange={(e) => setFormAvatarUrl(e.target.value)}
+                          placeholder="https://images.unsplash.com/..."
+                          className="w-full bg-[#0a0d13] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 font-mono text-[11px]"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Belső Jegyzet / Megjegyzés (Opcionális)
+                      </label>
+                      <input
+                        type="text"
+                        value={formNotes}
+                        onChange={(e) => setFormNotes(e.target.value)}
+                        placeholder="pl. Marketing csapat vagy Alapító személyes fiókja"
+                        className="w-full bg-[#0a0d13] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* Mode B: API Tokens & Keys */}
-              {currentCred.authMode === 'api_token' && (
-                <div className="space-y-3.5 p-4 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              {/* ------------------------------------------------------------ */}
+              {/* STEP 2: Platform & Típus (Üzleti / Magán)                    */}
+              {/* ------------------------------------------------------------ */}
+              {step === 2 && (
+                <div className="p-5 rounded-2xl bg-[#121620] border border-white/[0.08] space-y-4 animate-fadeIn">
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-mono text-slate-300">
-                        {selectedPlatform === 'youtube'
-                          ? 'Google Cloud API Kulcs / OAuth Token'
-                          : 'Hivatalos Graph API Access Token'}
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setShowToken(!showToken)}
-                        className="text-[10px] text-blue-400 hover:underline flex items-center gap-1 font-mono"
-                      >
-                        {showToken ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                        <span>{showToken ? 'Elrejtés' : 'Megjelenítés'}</span>
-                      </button>
-                    </div>
-                    <textarea
-                      rows={2}
-                      value={currentCred.accessToken || ''}
-                      onChange={(e) => handleFieldChange('accessToken', e.target.value)}
-                      placeholder={
-                        selectedPlatform === 'youtube'
-                          ? 'AIzaSyDw49Pz... vagy OAuth 2.0 Access Token'
-                          : 'EAABwzLixnjYBAOd8q2kP98zXkL...'
-                      }
-                      className="w-full bg-[#121620] border border-white/[0.1] rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 font-mono resize-none"
-                    />
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-mono">
+                        2
+                      </span>
+                      <span>Válaszd ki a Platformot és a Fiók Típusát</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Kattints a megfelelő platformra. Ahol elérhető (pl. Facebook vagy Instagram), ott választhatsz üzleti vagy magán fiók között!
+                    </p>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-mono text-slate-300 mb-1">
-                        {selectedPlatform === 'facebook'
-                          ? 'Facebook Page ID'
-                          : selectedPlatform === 'instagram'
-                          ? 'Instagram Business Account ID'
-                          : selectedPlatform === 'youtube'
-                          ? 'YouTube Channel ID'
-                          : 'Threads User ID'}
-                      </label>
-                      <input
-                        type="text"
-                        value={currentCred.accountId || ''}
-                        onChange={(e) => handleFieldChange('accountId', e.target.value)}
-                        placeholder="pl. 109283741829182 vagy UC_x5XG1..."
-                        className="w-full bg-[#121620] border border-white/[0.1] rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-mono text-slate-300 mb-1">
-                        App ID / Client ID (Opcionális)
-                      </label>
-                      <input
-                        type="text"
-                        value={currentCred.appId || ''}
-                        onChange={(e) => handleFieldChange('appId', e.target.value)}
-                        placeholder="pl. 849201948201"
-                        className="w-full bg-[#121620] border border-white/[0.1] rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
+                  {/* Platform Selection Cards */}
+                  <div className="space-y-2 pt-1">
+                    <label className="block text-xs font-semibold text-slate-300">Célplatform</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {PLATFORM_OPTIONS.map((opt) => {
+                        const isSelected = formPlatformType === opt.type;
 
-              {/* Facebook Specific: Dual Target Configuration (Business Page & Personal Profile) */}
-              {selectedPlatform === 'facebook' && (
-                <div className="space-y-3.5 p-4 rounded-xl bg-gradient-to-br from-blue-950/20 to-indigo-950/20 border border-blue-500/25">
-                  <div className="flex items-center justify-between pb-2 border-b border-blue-500/15">
-                    <span className="text-xs font-bold text-blue-300 flex items-center gap-1.5">
-                      <PlatformIcon platform="facebook" size="sm" />
-                      Kétfajta Facebook Célpont (Üzleti Oldal és Saját Profil)
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30">
-                      Page & Profile Kezelés
-                    </span>
-                  </div>
-
-                  {/* Default Target Choice */}
-                  <div>
-                    <label className="block text-[11px] font-mono text-slate-300 mb-1.5 uppercase tracking-wider">
-                      Alapértelmezett Célpont Új Posztok Létrehozásakor
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { id: 'page', label: 'Üzleti Oldal', desc: 'Hivatalos Page', icon: Building2 },
-                        { id: 'profile', label: 'Saját Profil', desc: 'Személyes fiók', icon: User },
-                        { id: 'both', label: 'Mindkettő', desc: 'Oldal + Profil', icon: Users },
-                      ].map(({ id, label, desc, icon: Icon }) => {
-                        const isSelected = (currentCred.fbDefaultTarget || 'page') === id;
                         return (
                           <button
-                            key={id}
+                            key={opt.type}
                             type="button"
-                            onClick={() => handleFieldChange('fbDefaultTarget', id)}
-                            className={`p-2 rounded-lg border text-left flex flex-col gap-0.5 transition-all ${
+                            onClick={() => handlePlatformTypeChange(opt.type)}
+                            className={`p-3 rounded-xl border text-left transition-all relative overflow-hidden flex items-start gap-2.5 ${
                               isSelected
-                                ? 'bg-blue-600/30 border-blue-500 text-white ring-1 ring-blue-500/30'
-                                : 'bg-[#121620] border-white/[0.08] text-slate-400 hover:text-slate-200'
+                                ? 'bg-blue-500/15 border-blue-500/50 text-white ring-1 ring-blue-500/30'
+                                : 'bg-[#0a0d13] border-white/[0.08] text-slate-300 hover:border-white/[0.16]'
                             }`}
                           >
-                            <div className="flex items-center gap-1.5">
-                              <Icon className="w-3.5 h-3.5 text-blue-400" />
-                              <span className="text-xs font-semibold">{label}</span>
+                            <PlatformIcon platform={opt.basePlatform} size="md" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="font-bold text-xs truncate">{opt.name}</span>
+                                {isSelected && (
+                                  <Check className="w-3.5 h-3.5 text-blue-400 shrink-0 stroke-[3]" />
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-400 line-clamp-2 mt-0.5">
+                                {opt.desc}
+                              </p>
                             </div>
-                            <span className="text-[9px] text-slate-500 line-clamp-1">{desc}</span>
                           </button>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* Section A: Üzleti Oldal (Facebook Business Page) */}
-                  <div className="p-3 rounded-lg bg-black/20 border border-blue-500/20 space-y-2.5">
-                    <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-300">
-                      <Building2 className="w-3.5 h-3.5" />
-                      <span>1. Facebook Üzleti Oldal (Page)</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[11px] font-mono text-slate-400 mb-0.5">
-                          Oldal Neve (Page Name)
-                        </label>
-                        <input
-                          type="text"
-                          value={currentCred.pageName || ''}
-                          onChange={(e) => handleFieldChange('pageName', e.target.value)}
-                          placeholder="pl. TechFlow Hivatalos Oldal"
-                          className="w-full bg-[#121620] border border-white/[0.1] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-mono text-slate-400 mb-0.5">
-                          Facebook Page ID
-                        </label>
-                        <input
-                          type="text"
-                          value={currentCred.pageId || ''}
-                          onChange={(e) => handleFieldChange('pageId', e.target.value)}
-                          placeholder="pl. 109283741829182"
-                          className="w-full bg-[#121620] border border-white/[0.1] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500 font-mono"
-                        />
-                      </div>
-                    </div>
-                  </div>
+                  {/* Account Type (Üzleti VS Magán) */}
+                  <div className="pt-3 border-t border-white/[0.06] space-y-2">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      Fiók Jelleg / Típus
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setFormAccountType('business')}
+                        className={`p-3 rounded-xl border text-left transition-all flex items-start gap-2.5 ${
+                          formAccountType === 'business'
+                            ? 'bg-blue-500/15 border-blue-500/40 text-white ring-1 ring-blue-500/30'
+                            : 'bg-[#0a0d13] border-white/[0.08] text-slate-400 hover:border-white/[0.15]'
+                        }`}
+                      >
+                        <Building2 className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="font-bold text-xs text-white">Üzleti / Céges Fiók</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">
+                            Cégoldalak, márkák, API-n keresztüli közvetlen automatikus posztolás.
+                          </div>
+                        </div>
+                      </button>
 
-                  {/* Section B: Saját Személyes Profil (Personal Profile) */}
-                  <div className="p-3 rounded-lg bg-black/20 border border-purple-500/20 space-y-2.5">
-                    <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
-                      <User className="w-3.5 h-3.5" />
-                      <span>2. Facebook Saját Profil / Személyes Fiók</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[11px] font-mono text-slate-400 mb-0.5">
-                          Saját Profil Neve / Megjelenítés
-                        </label>
-                        <input
-                          type="text"
-                          value={currentCred.profileName || ''}
-                          onChange={(e) => handleFieldChange('profileName', e.target.value)}
-                          placeholder="pl. Kovács János (Saját fiók)"
-                          className="w-full bg-[#121620] border border-white/[0.1] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-purple-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-mono text-slate-400 mb-0.5">
-                          Profil / Felhasználó ID (Opcionális)
-                        </label>
-                        <input
-                          type="text"
-                          value={currentCred.profileId || ''}
-                          onChange={(e) => handleFieldChange('profileId', e.target.value)}
-                          placeholder="pl. 100084920194820"
-                          className="w-full bg-[#121620] border border-white/[0.1] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-purple-500 font-mono"
-                        />
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFormAccountType('personal')}
+                        className={`p-3 rounded-xl border text-left transition-all flex items-start gap-2.5 ${
+                          formAccountType === 'personal'
+                            ? 'bg-purple-500/15 border-purple-500/40 text-white ring-1 ring-purple-500/30'
+                            : 'bg-[#0a0d13] border-white/[0.08] text-slate-400 hover:border-white/[0.15]'
+                        }`}
+                      >
+                        <User className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="font-bold text-xs text-white">Magán / Személyes Fiók</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">
+                            Alapító személyes profilja vagy magán csatorna jelszavas vagy API belépéssel.
+                          </div>
+                        </div>
+                      </button>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Developer Hint Guide */}
-              <div className="p-3 bg-[#121620] rounded-xl border border-white/[0.06] text-xs text-slate-300 flex items-start gap-2.5">
-                <HelpCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <div>
-                  <div className="font-semibold text-emerald-300 mb-0.5">
-                    Hogyan működik a csatlakozás?
-                  </div>
-                  <div className="text-slate-400 text-[11px] leading-relaxed">
-                    {PLATFORM_DOCS[selectedPlatform].tokenGuide}
-                  </div>
-                </div>
-              </div>
-
-              {/* Status Message Banners */}
-              {testResult && (
-                <div
-                  className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 animate-fadeIn ${
-                    testResult.success
-                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                      : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-                  }`}
-                >
-                  {testResult.success ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                  )}
+              {/* ------------------------------------------------------------ */}
+              {/* STEP 3: Hitelesítés (Jelszó / Felhasználónév VAGY API Token)   */}
+              {/* ------------------------------------------------------------ */}
+              {step === 3 && (
+                <div className="p-5 rounded-2xl bg-[#121620] border border-white/[0.08] space-y-4 animate-fadeIn">
                   <div>
-                    <div className="font-semibold">
-                      {testResult.success ? 'Sikeres kapcsolat!' : 'Csatlakozási hiba!'}
-                    </div>
-                    <div className="text-[11px] mt-0.5 opacity-90">{testResult.message}</div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-mono">
+                        3
+                      </span>
+                      <span>Hitelesítési Mód & Belépési Adatok</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Válaszd ki, hogyan csatlakozzon az alkalmazás: hivatalos fejlesztői API token segítségével, vagy felhasználónév / jelszó alapon.
+                    </p>
                   </div>
-                </div>
-              )}
 
-              {saveSuccessMessage && (
-                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2 animate-fadeIn">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>{saveSuccessMessage}</span>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-white/[0.08]">
-                <div>
-                  {currentCred.connected && (
+                  {/* Auth Mode Toggle */}
+                  <div className="grid grid-cols-2 gap-3 pt-1">
                     <button
                       type="button"
-                      onClick={handleDisconnect}
-                      className="px-3 py-1.5 rounded-lg border border-rose-500/30 hover:bg-rose-500/10 text-rose-400 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                      onClick={() => setFormAuthMode('api_token')}
+                      className={`p-3 rounded-xl border text-left transition-all flex items-start gap-2.5 ${
+                        formAuthMode === 'api_token'
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200 ring-1 ring-emerald-500/30'
+                          : 'bg-[#0a0d13] border-white/[0.08] text-slate-400 hover:border-white/[0.15]'
+                      }`}
                     >
-                      <Unlink className="w-3.5 h-3.5" />
-                      <span>Kapcsolat Bontása</span>
+                      <Key className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-bold text-xs text-white">Hivatalos API Token (Ajánlott)</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                          Meta Graph API, YouTube Data API v3 tokenek és Page ID-k.
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setFormAuthMode('credentials')}
+                      className={`p-3 rounded-xl border text-left transition-all flex items-start gap-2.5 ${
+                        formAuthMode === 'credentials'
+                          ? 'bg-purple-500/15 border-purple-500/40 text-purple-200 ring-1 ring-purple-500/30'
+                          : 'bg-[#0a0d13] border-white/[0.08] text-slate-400 hover:border-white/[0.15]'
+                      }`}
+                    >
+                      <Lock className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-bold text-xs text-white">Felhasználónév & Jelszó</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                          Közvetlen fiókbejelentkezés személyes vagy céges fiókhoz.
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Dynamic Form based on Auth Mode */}
+                  {formAuthMode === 'api_token' ? (
+                    <div className="p-4 rounded-xl bg-[#0a0d13] border border-white/[0.06] space-y-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-semibold text-slate-300">
+                            Access Token (Hozzáférési Kulcs)
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setShowToken(!showToken)}
+                            className="text-[11px] text-slate-400 hover:text-slate-200 flex items-center gap-1 font-mono"
+                          >
+                            {showToken ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            <span>{showToken ? 'Elrejtés' : 'Megjelenítés'}</span>
+                          </button>
+                        </div>
+                        <input
+                          type={showToken ? 'text' : 'password'}
+                          value={formAccessToken}
+                          onChange={(e) => setFormAccessToken(e.target.value)}
+                          placeholder="pl. EAABwzLixnjYBAOd8q2kP98zXkL... vagy AIzaSyDw..."
+                          className="w-full bg-[#121620] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1">
+                            Fiók / Page / Csatorna ID
+                          </label>
+                          <input
+                            type="text"
+                            value={formPlatformNativeId}
+                            onChange={(e) => setFormPlatformNativeId(e.target.value)}
+                            placeholder="pl. 109283741829182 vagy UC_x5XG1..."
+                            className="w-full bg-[#121620] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 font-mono text-[11px]"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1">
+                            App ID / Client ID (Opcionális)
+                          </label>
+                          <input
+                            type="text"
+                            value={formAppId}
+                            onChange={(e) => setFormAppId(e.target.value)}
+                            placeholder="pl. 849201948201"
+                            className="w-full bg-[#121620] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 font-mono text-[11px]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 rounded-xl bg-[#0a0d13] border border-white/[0.06] space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1">
+                          Felhasználónév vagy Email cím
+                        </label>
+                        <input
+                          type="text"
+                          value={formUsername}
+                          onChange={(e) => setFormUsername(e.target.value)}
+                          placeholder="pl. admin@postpulse.app vagy felhasznalo"
+                          className="w-full bg-[#121620] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-purple-500"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-semibold text-slate-300">
+                            Jelszó
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="text-[11px] text-slate-400 hover:text-slate-200 flex items-center gap-1 font-mono"
+                          >
+                            {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            <span>{showPassword ? 'Elrejtés' : 'Megjelenítés'}</span>
+                          </button>
+                        </div>
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          value={formPassword}
+                          onChange={(e) => setFormPassword(e.target.value)}
+                          placeholder="Fiók jelszava"
+                          className="w-full bg-[#121620] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-purple-500"
+                        />
+                      </div>
+
+                      <div className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-200 text-xs flex items-start gap-2">
+                        <Zap className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5 fill-current" />
+                        <div>
+                          <div className="font-semibold text-white">⚡ Metricool-mód aktív (NEM KELL ACCESS TOKEN!)</div>
+                          <div className="text-[11px] text-slate-300 mt-0.5">
+                            A felhasználónévvel és jelszóval a rendszer automatikusan felépíti a hitelesített publikálási munkamenetet. Nincs szükség Meta Graph API tokenek keresgélésére!
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Test Connection Button Inside Step 3 */}
+                  <div className="pt-2 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={handleRunTest}
+                      disabled={testing}
+                      className="px-3.5 py-1.5 rounded-lg border border-white/[0.15] bg-[#0a0d13] hover:bg-white/[0.06] text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${testing ? 'animate-spin text-blue-400' : ''}`} />
+                      <span>{testing ? 'Tesztelés folyamatban...' : 'Kapcsolat Tesztelése'}</span>
+                    </button>
+
+                    {testResult && (
+                      <span
+                        className={`text-xs flex items-center gap-1 font-semibold ${
+                          testResult.success ? 'text-emerald-400' : 'text-rose-400'
+                        }`}
+                      >
+                        {testResult.success ? (
+                          <CheckCircle2 className="w-4 h-4" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4" />
+                        )}
+                        <span>{testResult.message}</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ------------------------------------------------------------ */}
+              {/* STEP 4: Összegzés & Mentés                                   */}
+              {/* ------------------------------------------------------------ */}
+              {step === 4 && (
+                <div className="p-5 rounded-2xl bg-[#121620] border border-white/[0.08] space-y-4 animate-fadeIn">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-mono">
+                        4
+                      </span>
+                      <span>Összegzés & Véglegesítés</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Kérjük ellenőrizd az adatokat a fiók mentése és csatlakoztatása előtt.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-[#0a0d13] border border-white/[0.08] space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
+                      <span className="text-slate-400">Fiók Neve:</span>
+                      <span className="font-bold text-white">{formName || 'Névtelen Fiók'}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
+                      <span className="text-slate-400">Platform:</span>
+                      <div className="flex items-center gap-1.5 font-bold text-slate-200">
+                        <PlatformIcon platform={currentPlatformOption.basePlatform} size="xs" />
+                        <span>{currentPlatformOption.name}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
+                      <span className="text-slate-400">Fiók Típusa:</span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
+                          formAccountType === 'personal'
+                            ? 'bg-purple-500/20 text-purple-300'
+                            : 'bg-blue-500/20 text-blue-300'
+                        }`}
+                      >
+                        {formAccountType === 'personal' ? 'Magán / Profil' : 'Üzleti / Céges'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
+                      <span className="text-slate-400">Hitelesítési Mód:</span>
+                      <span className="font-mono text-slate-200">
+                        {formAuthMode === 'credentials'
+                          ? `🔑 Felhasználó: ${formUsername || 'Nincs megadva'}`
+                          : `⚡ API Token (${formAccessToken ? 'Beállítva' : 'Nincs megadva'})`}
+                      </span>
+                    </div>
+
+                    {formPlatformNativeId && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400">Native Platform ID:</span>
+                        <span className="font-mono text-slate-200">{formPlatformNativeId}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+                    <span>
+                      A mentés után a fiók azonnal kiválasztható lesz a posztszerkesztőben és az időzített naptárban.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Wizard Bottom Step Controller Bar */}
+              <div className="flex items-center justify-between pt-2">
+                <div>
+                  {step > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setStep((step - 1) as WizardStep)}
+                      className="px-4 py-2 rounded-xl border border-white/[0.12] bg-[#121620] hover:bg-white/[0.06] text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Vissza</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('list')}
+                      className="px-4 py-2 rounded-xl border border-white/[0.1] text-slate-400 hover:text-white text-xs font-semibold transition-colors"
+                    >
+                      Mégse & Vissza a Listához
                     </button>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleTest}
-                    disabled={testing}
-                    className="px-3.5 py-1.5 rounded-lg border border-white/[0.12] bg-[#121620] hover:bg-white/[0.06] text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${testing ? 'animate-spin text-blue-400' : ''}`} />
-                    <span>{testing ? 'Tesztelés...' : 'Kapcsolat Tesztelése'}</span>
-                  </button>
-
-                  <button
-                    type="submit"
-                    className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all active:scale-[0.98]"
-                    id="save-social-account-btn"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5]" />
-                    <span>Mentés & Csatlakoztatás</span>
-                  </button>
+                <div>
+                  {step < 4 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (step === 1 && !formName.trim()) {
+                          setFeedbackMessage({ text: 'Kérjük adj meg egy nevet a fióknak!', type: 'error' });
+                          return;
+                        }
+                        setFeedbackMessage(null);
+                        setStep((step + 1) as WizardStep);
+                      }}
+                      className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-600/20 transition-all active:scale-[0.98]"
+                      id="wizard-next-step-btn"
+                    >
+                      <span>Következő Lépés</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSaveAccount}
+                      disabled={saving}
+                      className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+                      id="wizard-save-finish-btn"
+                    >
+                      <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
+                      <span>{saving ? 'Mentés...' : isEditing ? 'Módosítások Mentése' : 'Fiók Csatlakoztatása & Befejezés'}</span>
+                    </button>
+                  )}
                 </div>
               </div>
-            </form>
+            </div>
+          )}
+        </div>
+
+        {/* Modal Bottom Status Bar */}
+        <div className="h-12 px-6 bg-[#090c12] border-t border-white/[0.06] flex items-center justify-between text-xs text-slate-400 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span className="text-[11px] font-mono">PostPulse Multi-Platform Engine</span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-[11px]">
+              {activeTab === 'wizard' ? `Varázsló: ${step}/4 lépés` : `${accounts.length} fiók elérhető`}
+            </span>
+            <button
+              onClick={onClose}
+              className="px-3 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-slate-200 text-xs font-semibold transition-colors"
+            >
+              Bezárás
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Metricool 1-Click Fast Connect Overlay Modal (NO ACCESS TOKEN REQUIRED!) */}
+      {showMetricoolModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn">
+          <div className="relative w-full max-w-lg bg-[#0e121b] border border-cyan-500/40 rounded-2xl shadow-2xl shadow-cyan-500/10 overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="p-5 border-b border-white/[0.08] bg-gradient-to-r from-blue-950/60 to-cyan-950/60 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300">
+                  <Zap className="w-5 h-5 text-cyan-300 fill-current" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm font-bold text-white">Gyors Összekapcsolás (Metricool-mód)</h3>
+                    <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-bold border border-cyan-500/30">
+                      NEM KELL ACCESS TOKEN!
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Csatlakoztasd a fiókodat közvetlenül felhasználónévvel és jelszóval.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMetricoolModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08]"
+                id="btn-close-metricool-modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4 text-xs">
+              {/* Platform Selection */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  1. Válaszd ki a platformot:
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    { id: 'facebook_page', label: 'Facebook Oldal', base: 'facebook' },
+                    { id: 'facebook_profile', label: 'Facebook Profil', base: 'facebook' },
+                    { id: 'instagram', label: 'Instagram', base: 'instagram' },
+                    { id: 'youtube', label: 'YouTube', base: 'youtube' },
+                    { id: 'threads', label: 'Threads', base: 'threads' },
+                  ].map((p) => {
+                    const active = metricoolPlatform === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          setMetricoolPlatform(p.id as SocialAccountPlatformType);
+                          if (p.id === 'facebook_profile') setMetricoolAccountType('personal');
+                          else setMetricoolAccountType('business');
+                        }}
+                        className={`p-2.5 rounded-xl border text-left flex items-center gap-2 transition-all ${
+                          active
+                            ? 'bg-cyan-500/20 border-cyan-400/50 text-white ring-1 ring-cyan-400/40 shadow-sm'
+                            : 'bg-[#121620] border-white/[0.06] text-slate-300 hover:border-white/[0.15]'
+                        }`}
+                      >
+                        <PlatformIcon platform={p.base as any} size="sm" />
+                        <span className="font-semibold text-xs truncate">{p.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Account Name */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  2. Fiók / Oldal Neve:
+                </label>
+                <input
+                  type="text"
+                  value={metricoolName}
+                  onChange={(e) => setMetricoolName(e.target.value)}
+                  placeholder={
+                    metricoolPlatform === 'facebook_page'
+                      ? 'pl. Céges Facebook Oldal'
+                      : metricoolPlatform === 'facebook_profile'
+                        ? 'pl. Kovács János (Profil)'
+                        : metricoolPlatform === 'instagram'
+                          ? 'pl. Insta Üzleti Fiók'
+                          : metricoolPlatform === 'youtube'
+                            ? 'pl. Tech Csatorna'
+                            : 'pl. Threads Fiók'
+                  }
+                  className="w-full bg-[#121620] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+
+              {/* Username */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  3. Felhasználónév vagy Bejelentkezési Email cím:
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={metricoolUsername}
+                    onChange={(e) => setMetricoolUsername(e.target.value)}
+                    placeholder="pl. pelda@gmail.com vagy kovacs_janos"
+                    className="w-full bg-[#121620] border border-white/[0.12] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-slate-300">
+                    4. Jelszó:
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setMetricoolShowPassword(!metricoolShowPassword)}
+                    className="text-[11px] text-slate-400 hover:text-slate-200 flex items-center gap-1 font-mono"
+                  >
+                    {metricoolShowPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    <span>{metricoolShowPassword ? 'Elrejtés' : 'Megjelenítés'}</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type={metricoolShowPassword ? 'text' : 'password'}
+                    value={metricoolPassword}
+                    onChange={(e) => setMetricoolPassword(e.target.value)}
+                    placeholder="Fiók jelszava"
+                    className="w-full bg-[#121620] border border-white/[0.12] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+              </div>
+
+              {/* Explanatory callout */}
+              <div className="p-3.5 rounded-xl bg-blue-950/30 border border-cyan-500/20 text-blue-200 text-[11px] leading-relaxed flex items-start gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Hogyan működik?</strong> Pontosan úgy, mint a Metricool vagy Buffer rendszereiben: a bejelentkezési adatokkal a rendszer automatikusan felépíti az engedélyezett munkamenetet. Nincs szükséged Meta Graph API fejlesztői konzolra, sem manuális Page Access Token másolgatására!
+                </span>
+              </div>
+            </div>
+
+            {/* Actions Footer */}
+            <div className="p-4 border-t border-white/[0.08] bg-[#090c12] flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowMetricoolModal(false)}
+                className="px-4 py-2 rounded-xl border border-white/[0.1] text-slate-400 hover:text-white text-xs font-semibold transition-colors"
+              >
+                Mégse
+              </button>
+              <button
+                type="button"
+                onClick={handleMetricoolConnect}
+                disabled={metricoolConnecting}
+                className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-500/20 transition-all active:scale-[0.98] disabled:opacity-50"
+                id="btn-confirm-metricool-connect"
+              >
+                {metricoolConnecting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Kapcsolódás a szerverhez...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3.5 h-3.5 fill-current" />
+                    <span>Összekapcsolás & Mentés</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

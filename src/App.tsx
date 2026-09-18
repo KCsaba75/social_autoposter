@@ -11,12 +11,13 @@ import {
   Info,
   X,
 } from 'lucide-react';
-import { Post, Platform, PostStatus, CustomContent } from './types';
+import { Post, Platform, PostStatus, CustomContent, PostPublishResponse } from './types';
 import {
   apiFetchPosts,
   apiCreatePost,
   apiUpdatePost,
   apiDeletePost,
+  apiPublishPost,
   getStoredSupabaseConfig,
 } from './lib/supabase';
 import { Header } from './components/Header';
@@ -29,6 +30,8 @@ import { SocialAccountsModal } from './components/SocialAccountsModal';
 import { DeleteConfirmModal } from './components/DeleteConfirmModal';
 import { AiCampaignModal } from './components/AiCampaignModal';
 import { ApiWebhookModal } from './components/ApiWebhookModal';
+import { PublishResultModal } from './components/PublishResultModal';
+import { FacebookVerifierModal } from './components/FacebookVerifierModal';
 import { getStoredSocialAccounts } from './lib/socialAccounts';
 import { canDeletePost } from './lib/postPermissions';
 
@@ -48,6 +51,13 @@ export default function App() {
   const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isApiWebhookModalOpen, setIsApiWebhookModalOpen] = useState(false);
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+  const [publishModalResult, setPublishModalResult] = useState<PostPublishResponse | null>(null);
+  const [isFacebookVerifierOpen, setIsFacebookVerifierOpen] = useState(false);
+  const [verifierPost, setVerifierPost] = useState<Post | null>(null);
+  const [outboundWebhookUrl, setOutboundWebhookUrl] = useState(() => {
+    return localStorage.getItem('postpulse_outbound_webhook_url') || '';
+  });
   const [socialAccounts, setSocialAccounts] = useState(() => getStoredSocialAccounts());
   const [dismissMockBanner, setDismissMockBanner] = useState(false);
 
@@ -66,6 +76,9 @@ export default function App() {
 
   const [currentPlatforms, setCurrentPlatforms] = useState<Platform[]>([
     'instagram',
+  ]);
+  const [currentAccountIds, setCurrentAccountIds] = useState<string[]>([
+    'acc_fb_napicsabi',
   ]);
   const [currentText, setCurrentText] = useState<string>(
     '🚀 Készülj fel valami újra! Hamarosan érkezik a legújabb termékfrissítésünk, rengeteg izgalmas funkcióval. Csatlakozz te is a korai hozzáféréshez! ✨👇'
@@ -138,31 +151,46 @@ export default function App() {
     action: 'draft' | 'schedule' | 'publish'
   ) => {
     try {
+      let targetPostId = postData.id;
+
       if (postData.id) {
         // Update existing
         await apiUpdatePost(postData.id, postData);
-        showToast(
-          action === 'publish'
-            ? 'Poszt azonnal közzétéve!'
-            : action === 'draft'
-              ? 'Piszkozat sikeresen frissítve!'
-              : 'Poszt ütemezése sikeresen frissítve!'
-        );
       } else {
         // Create new
-        await apiCreatePost(postData);
-        showToast(
-          action === 'publish'
-            ? 'Új poszt azonnal közzétéve!'
-            : action === 'draft'
-              ? 'Új piszkozat elmentve!'
-              : 'Új poszt sikeresen időzítve a naptárba!'
-        );
+        const created = await apiCreatePost(postData);
+        if (created?.post?.id) {
+          targetPostId = created.post.id;
+        }
       }
 
       await loadPosts();
       setEditingPost(null);
       setIsComposerModalOpen(false);
+
+      if (action === 'publish') {
+        const fullPost: Post = {
+          ...postData,
+          id: targetPostId || `temp-${Date.now()}`,
+          created_at: new Date().toISOString(),
+        } as Post;
+
+        showToast('Publikálás indítása és hitelesítés ellenőrzése...', 'info');
+        const pubResult = await apiPublishPost(fullPost, outboundWebhookUrl);
+        setPublishModalResult(pubResult);
+        setIsPublishModalOpen(true);
+        await loadPosts();
+
+        if (pubResult.success) {
+          showToast('Poszt sikeresen továbbítva az éles felületre!');
+        } else {
+          showToast('A poszt nem ment ki (részletek a megnyíló ablakban).', 'error');
+        }
+      } else if (action === 'draft') {
+        showToast(postData.id ? 'Piszkozat sikeresen frissítve!' : 'Új piszkozat elmentve!');
+      } else {
+        showToast(postData.id ? 'Poszt ütemezése sikeresen frissítve!' : 'Új poszt sikeresen időzítve a naptárba!');
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Mentési hiba történt';
       showToast(msg, 'error');
@@ -223,15 +251,50 @@ export default function App() {
   // Publish now handler
   const handlePublishNow = async (post: Post) => {
     try {
-      await apiUpdatePost(post.id, {
+      setVerifierPost(post);
+      showToast(`Publikálás folyamatban ("${post.base_text.slice(0, 18)}...")...`, 'info');
+      const pubResult = await apiPublishPost(post, outboundWebhookUrl);
+      setPublishModalResult(pubResult);
+      setIsPublishModalOpen(true);
+      await loadPosts();
+
+      if (pubResult.success) {
+        showToast(`A(z) "${post.base_text.slice(0, 20)}..." poszt feldolgozva!`);
+      } else {
+        showToast('A poszt nem ment ki a platformra (részletek az ablakban).', 'error');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Hiba történt a publikálás közben';
+      showToast(msg, 'error');
+    }
+  };
+
+  // Open Facebook Live Verifier modal
+  const handleOpenFacebookVerifier = (post?: Post) => {
+    if (post) {
+      setVerifierPost(post);
+    } else {
+      const target =
+        editingPost ||
+        posts.find((p) => p.platforms.includes('facebook')) ||
+        null;
+      setVerifierPost(target);
+    }
+    setIsFacebookVerifierOpen(true);
+  };
+
+  // Mark as simulated / administrative published (when user posted manually)
+  const handleMarkAsSimulatedPublished = async (postId: string) => {
+    try {
+      await apiUpdatePost(postId, {
         status: 'published',
         scheduled_at: new Date().toISOString(),
+        error_log: null,
       });
-      showToast(`A(z) "${post.base_text.slice(0, 20)}..." poszt közzétéve!`);
+      showToast('Poszt adminisztratíve közzétettként jelölve a naptárban!');
       await loadPosts();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Hiba történt';
-      showToast(msg, 'error');
+    } catch {
+      showToast('Nem sikerült frissíteni a poszt állapotát.', 'error');
     }
   };
 
@@ -250,6 +313,7 @@ export default function App() {
     setCurrentText('');
     setCurrentMedia([]);
     setCurrentCustomContent({});
+    setCurrentAccountIds(['acc_fb_napicsabi']);
 
     setIsComposerModalOpen(true);
   };
@@ -263,6 +327,11 @@ export default function App() {
     setCurrentText(post.base_text);
     setCurrentMedia(post.media_urls || []);
     setCurrentCustomContent(post.custom_content || {});
+    if (post.account_ids && post.account_ids.length > 0) {
+      setCurrentAccountIds(post.account_ids);
+    } else {
+      setCurrentAccountIds(['acc_fb_napicsabi']);
+    }
     setCurrentScheduledAt(
       new Date(new Date(post.scheduled_at).getTime() - new Date().getTimezoneOffset() * 60000)
         .toISOString()
@@ -279,6 +348,7 @@ export default function App() {
     setCurrentText('');
     setCurrentMedia([]);
     setCurrentCustomContent({});
+    setCurrentAccountIds(['acc_fb_napicsabi']);
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(10, 0, 0, 0);
@@ -308,6 +378,7 @@ export default function App() {
         onOpenSocialModal={() => setIsSocialModalOpen(true)}
         onOpenAiModal={() => setIsAiModalOpen(true)}
         onOpenApiWebhookModal={() => setIsApiWebhookModalOpen(true)}
+        onOpenFacebookVerifier={() => handleOpenFacebookVerifier()}
         connectedSocialCount={(Object.values(socialAccounts) as { connected: boolean }[]).filter((a) => a.connected).length}
         isMockMode={isMockMode}
       />
@@ -383,6 +454,7 @@ export default function App() {
               onRequestDelete={handleRequestDelete}
               onRequestBatchDelete={handleRequestBatchDelete}
               onPublishNow={handlePublishNow}
+              onOpenFacebookVerifier={handleOpenFacebookVerifier}
               onNewPost={handleStartNewBlankPost}
               filterPlatform={selectedPlatform}
               filterStatus={selectedStatus}
@@ -413,6 +485,9 @@ export default function App() {
         setCurrentCustomContent={setCurrentCustomContent}
         currentScheduledAt={currentScheduledAt}
         setCurrentScheduledAt={setCurrentScheduledAt}
+        currentAccountIds={currentAccountIds}
+        setCurrentAccountIds={setCurrentAccountIds}
+        onOpenSocialModal={() => setIsSocialModalOpen(true)}
       />
 
       {/* Floating Toast Notification */}
@@ -530,6 +605,29 @@ export default function App() {
 
           await loadPosts();
         }}
+      />
+
+      {/* Real-Time Publishing Diagnostic & Status Result Modal */}
+      <PublishResultModal
+        isOpen={isPublishModalOpen}
+        onClose={() => setIsPublishModalOpen(false)}
+        result={publishModalResult}
+        onOpenSocialAccounts={() => setIsSocialModalOpen(true)}
+        onMarkAsSimulatedPublished={handleMarkAsSimulatedPublished}
+        onOpenFacebookVerifier={() => handleOpenFacebookVerifier(verifierPost || undefined)}
+        outboundWebhookUrl={outboundWebhookUrl}
+        onSaveOutboundWebhook={(url) => {
+          setOutboundWebhookUrl(url);
+          localStorage.setItem('postpulse_outbound_webhook_url', url);
+        }}
+      />
+
+      {/* Facebook Live Post Verifier & Diagnostic Modal */}
+      <FacebookVerifierModal
+        isOpen={isFacebookVerifierOpen}
+        onClose={() => setIsFacebookVerifierOpen(false)}
+        post={verifierPost}
+        onOpenSocialAccounts={() => setIsSocialModalOpen(true)}
       />
     </div>
   );

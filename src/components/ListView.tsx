@@ -26,6 +26,7 @@ import { Post, Platform, PostStatus } from '../types';
 import { PLATFORM_CONFIGS } from '../lib/constants';
 import { PlatformIcon } from './PlatformIcon';
 import { canDeletePost, formatFutureTimeRemaining } from '../lib/postPermissions';
+import { getStoredMultiAccounts } from '../lib/socialAccounts';
 
 interface ListViewProps {
   posts: Post[];
@@ -34,6 +35,7 @@ interface ListViewProps {
   onRequestDelete?: (post: Post) => void;
   onRequestBatchDelete?: (posts: Post[]) => void;
   onPublishNow: (post: Post) => void;
+  onOpenFacebookVerifier?: (post?: Post) => void;
   onNewPost: () => void;
   filterPlatform: Platform | 'all';
   filterStatus: PostStatus | 'all';
@@ -47,6 +49,7 @@ export const ListView: React.FC<ListViewProps> = ({
   onRequestDelete,
   onRequestBatchDelete,
   onPublishNow,
+  onOpenFacebookVerifier,
   onNewPost,
   filterPlatform,
   filterStatus,
@@ -110,6 +113,26 @@ export const ListView: React.FC<ListViewProps> = ({
       toDelete.forEach((p) => onDeletePost(p.id));
     }
     setSelectedPostIds([]);
+  };
+
+  const getAccountLabel = (post: Post): string | null => {
+    if (post.target_accounts && post.target_accounts.length > 0) {
+      return post.target_accounts.map((a) => a.name).join(', ');
+    }
+    if (post.account_ids && post.account_ids.length > 0) {
+      const accs = getStoredMultiAccounts();
+      const matches = accs.filter((a) => post.account_ids!.includes(a.id));
+      if (matches.length > 0) {
+        return matches.map((m) => m.name).join(', ');
+      }
+    }
+    if (post.custom_content?.facebook?.targetName) {
+      return post.custom_content.facebook.targetName;
+    }
+    if (post.custom_content?.youtube?.channelName) {
+      return post.custom_content.youtube.channelName;
+    }
+    return null;
   };
 
   return (
@@ -300,6 +323,14 @@ export const ListView: React.FC<ListViewProps> = ({
                         ID: {post.id.slice(0, 8)}
                       </span>
 
+                      {/* Target Account Badge */}
+                      {getAccountLabel(post) && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1" title="Célfiók / Célcsatorna">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                          <span className="font-semibold">{getAccountLabel(post)}</span>
+                        </span>
+                      )}
+
                       {/* Deletable future indicator badge */}
                       {deleteInfo.type === 'future_scheduled' && (
                         <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 flex items-center gap-0.5" title="Aktuális időhöz képest a jövőben van">
@@ -403,6 +434,17 @@ export const ListView: React.FC<ListViewProps> = ({
 
                   {/* Action buttons */}
                   <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    {onOpenFacebookVerifier && post.platforms.includes('facebook') && (
+                      <button
+                        onClick={() => onOpenFacebookVerifier(post)}
+                        className="p-1.5 rounded-md hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors"
+                        title="Facebook közzététel ellenőrzése (Valós állapot, miért nem ment ki, 1-kattintásos közzététel)"
+                        id={`verify-fb-btn-${post.id}`}
+                      >
+                        <Search className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
                     {post.status !== 'published' && (
                       <button
                         onClick={() => onPublishNow(post)}

@@ -20,6 +20,7 @@ import { Post, Platform, PostStatus } from '../types';
 import { PLATFORM_CONFIGS, STATUS_CONFIG } from '../lib/constants';
 import { PlatformIcon } from './PlatformIcon';
 import { canDeletePost } from '../lib/postPermissions';
+import { getStoredMultiAccounts } from '../lib/socialAccounts';
 
 interface CalendarViewProps {
   posts: Post[];
@@ -55,6 +56,41 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       onDeletePost(post.id);
     }
   };
+
+  const getAccountLabel = (post: Post): string | null => {
+    if (post.target_accounts && post.target_accounts.length > 0) {
+      return post.target_accounts.map((a) => a.name).join(', ');
+    }
+    if (post.account_ids && post.account_ids.length > 0) {
+      const accs = getStoredMultiAccounts();
+      const matches = accs.filter((a) => post.account_ids!.includes(a.id));
+      if (matches.length > 0) {
+        return matches.map((m) => m.name).join(', ');
+      }
+    }
+    const labels: string[] = [];
+    if ((post.custom_content?.facebook as any)?.targetAccount?.name) {
+      labels.push((post.custom_content?.facebook as any).targetAccount.name);
+    } else if (post.custom_content?.facebook?.targetName) {
+      labels.push(post.custom_content.facebook.targetName);
+    }
+    if ((post.custom_content?.instagram as any)?.targetAccount?.name) {
+      labels.push((post.custom_content?.instagram as any).targetAccount.name);
+    }
+    if ((post.custom_content?.youtube as any)?.targetAccount?.name) {
+      labels.push((post.custom_content?.youtube as any).targetAccount.name);
+    } else if (post.custom_content?.youtube?.channelName) {
+      labels.push(post.custom_content.youtube.channelName);
+    }
+    if ((post.custom_content?.threads as any)?.targetAccount?.name) {
+      labels.push((post.custom_content?.threads as any).targetAccount.name);
+    }
+    if (labels.length > 0) {
+      return labels.join(' | ');
+    }
+    return null;
+  };
+
   const currentYear = selectedDate.getFullYear();
   const currentMonth = selectedDate.getMonth();
 
@@ -362,6 +398,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                             post.custom_content?.youtube?.title ||
                             'Nincs szöveg megadva'}
                         </p>
+
+                        {/* Target Account Badge */}
+                        {getAccountLabel(post) && (
+                          <div className="flex items-center gap-1 text-[9px] font-mono text-emerald-400 truncate mt-0.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                            <span className="truncate">{getAccountLabel(post)}</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -544,6 +588,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                           <p className="text-xs text-slate-200 line-clamp-3 leading-relaxed">
                             {post.base_text || post.custom_content?.youtube?.title}
                           </p>
+
+                          {/* Target Account Badge */}
+                          {getAccountLabel(post) && (
+                            <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-400 truncate">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                              <span className="truncate">{getAccountLabel(post)}</span>
+                            </div>
+                          )}
 
                           {post.media_urls && post.media_urls.length > 0 && (
                             <div className="relative rounded-md overflow-hidden h-24 border border-white/[0.06] bg-black/40">

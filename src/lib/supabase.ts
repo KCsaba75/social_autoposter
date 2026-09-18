@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Post, SupabaseConfig, SocialAccount, Platform, CustomContent } from '../types';
+import { Post, PostStatus, SupabaseConfig, SocialAccount, Platform, CustomContent, PostPublishResponse } from '../types';
 import { initialMockPosts } from '../data/mockPosts';
 
 const STORAGE_BUCKET = 'social-media-assets';
@@ -367,6 +367,8 @@ export async function apiFetchPosts(): Promise<{ posts: Post[]; isMock: boolean;
           };
         }
 
+        const collectedAccountIds = [fb?.account_id, ig?.account_id, yt?.account_id, th?.account_id].filter(Boolean);
+
         return {
           id: sp.id,
           created_at: sp.created_at,
@@ -377,6 +379,7 @@ export async function apiFetchPosts(): Promise<{ posts: Post[]; isMock: boolean;
           custom_content: customContent,
           platforms: platforms.length > 0 ? platforms : ['facebook', 'instagram'],
           error_log: sp.error_log,
+          account_ids: collectedAccountIds.length > 0 ? collectedAccountIds : sp.account_ids || undefined,
         };
       });
 
@@ -566,6 +569,65 @@ export async function apiUpdatePost(id: string, updates: Partial<Post>): Promise
     return { success: true, isMock: false };
   } catch {
     return { success: true, isMock: true };
+  }
+}
+
+export async function apiPublishPost(
+  post: Post,
+  outboundWebhookUrl?: string
+): Promise<PostPublishResponse> {
+  const local = getLocalPosts();
+  try {
+    const res = await fetch(`/api/posts/${post.id}/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ post, outbound_webhook_url: outboundWebhookUrl }),
+    });
+
+    const data: PostPublishResponse = await res.json();
+
+    // Update local posts cache
+    const updated: Post[] = local.map((p) =>
+      p.id === post.id
+        ? {
+            ...p,
+            status: (data.overallStatus || 'published') as PostStatus,
+            scheduled_at: new Date().toISOString(),
+            error_log: data.success ? null : data.message,
+          }
+        : p
+    );
+    saveLocalPosts(updated);
+
+    return data;
+  } catch (err: any) {
+    const fallbackErr = err.message || 'Hálózati hiba a publikáló szerver elérése közben.';
+    const failedResponse: PostPublishResponse = {
+      success: false,
+      overallStatus: 'failed',
+      postId: post.id,
+      message: fallbackErr,
+      platformResults: [
+        {
+          platform: post.platforms[0] || 'facebook',
+          success: false,
+          status: 'failed',
+          message: fallbackErr,
+        },
+      ],
+      tips: [
+        'Ellenőrizd a backend szerver kapcsolatát vagy a Meta API beállításokat.',
+      ],
+    };
+
+    const updated: Post[] = local.map((p) =>
+      p.id === post.id
+        ? { ...p, status: 'failed' as PostStatus, error_log: fallbackErr }
+        : p
+    );
+    saveLocalPosts(updated);
+
+    return failedResponse;
   }
 }
 

@@ -82,6 +82,13 @@ export const STATUS_CONFIG: Record<
     border: 'border-rose-800/40',
     dot: 'bg-rose-500',
   },
+  partial: {
+    label: 'Részleges',
+    bg: 'bg-amber-950/40',
+    text: 'text-amber-400',
+    border: 'border-amber-800/40',
+    dot: 'bg-amber-400',
+  },
 };
 
 export const SAMPLE_EMOJIS = ['🚀', '✨', '💡', '🔥', '🎉', '📌', '📈', '💬', '❤️', '🎬', '🌟', '👇', '🎯', '⚡'];

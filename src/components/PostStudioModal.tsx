@@ -26,6 +26,9 @@ interface PostStudioModalProps {
   setCurrentCustomContent: (content: CustomContent) => void;
   currentScheduledAt: string;
   setCurrentScheduledAt: (date: string) => void;
+  currentAccountIds?: string[];
+  setCurrentAccountIds?: (ids: string[]) => void;
+  onOpenSocialModal?: () => void;
 }
 
 export const PostStudioModal: React.FC<PostStudioModalProps> = ({
@@ -45,6 +48,9 @@ export const PostStudioModal: React.FC<PostStudioModalProps> = ({
   setCurrentCustomContent,
   currentScheduledAt,
   setCurrentScheduledAt,
+  currentAccountIds,
+  setCurrentAccountIds,
+  onOpenSocialModal,
 }) => {
   // Mobile / tablet switcher (on large screens both are visible side-by-side)
   const [mobileActiveTab, setMobileActiveTab] = useState<'composer' | 'preview'>('composer');
@@ -186,6 +192,9 @@ export const PostStudioModal: React.FC<PostStudioModalProps> = ({
               setCurrentCustomContent={setCurrentCustomContent}
               currentScheduledAt={currentScheduledAt}
               setCurrentScheduledAt={setCurrentScheduledAt}
+              currentAccountIds={currentAccountIds}
+              setCurrentAccountIds={setCurrentAccountIds}
+              onOpenSocialModal={onOpenSocialModal}
             />
           </div>
 
@@ -201,6 +210,7 @@ export const PostStudioModal: React.FC<PostStudioModalProps> = ({
               mediaUrls={currentMedia}
               customContent={currentCustomContent}
               scheduledAt={currentScheduledAt}
+              targetAccountIds={currentAccountIds}
             />
           </div>
         </div>

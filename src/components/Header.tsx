@@ -38,6 +38,7 @@ interface HeaderProps {
   onOpenSocialModal?: () => void;
   onOpenAiModal?: () => void;
   onOpenApiWebhookModal?: () => void;
+  onOpenFacebookVerifier?: () => void;
   connectedSocialCount?: number;
   isMockMode: boolean;
   isRightPanelOpen?: boolean;
@@ -61,6 +62,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSocialModal,
   onOpenAiModal,
   onOpenApiWebhookModal,
+  onOpenFacebookVerifier,
   connectedSocialCount = 4,
   isMockMode,
 }) => {
@@ -260,6 +262,20 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-blue-500/20 text-blue-200 border border-blue-400/30">
               {connectedSocialCount}/4
             </span>
+          </button>
+        )}
+
+        {/* Facebook Live Post Verifier & Diagnostic Button */}
+        {onOpenFacebookVerifier && (
+          <button
+            onClick={onOpenFacebookVerifier}
+            className="h-8 px-2.5 sm:px-3 rounded-lg border border-indigo-500/40 hover:border-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 hover:text-white font-medium text-xs flex items-center gap-1.5 transition-all shadow-xs"
+            title="Facebook Poszt Ellenőrző (Valós állapot a Facebookon, miért nem ment ki és azonnali megoldások)"
+            id="header-fb-verifier-btn"
+          >
+            <Search className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden xl:inline">Facebook Ellenőrző</span>
+            <span className="xl:hidden">FB Info</span>
           </button>
         )}
 

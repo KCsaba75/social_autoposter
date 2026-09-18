@@ -1,6 +1,6 @@
 export type Platform = 'facebook' | 'instagram' | 'threads' | 'youtube';
 
-export type PostStatus = 'draft' | 'scheduled' | 'publishing' | 'published' | 'failed';
+export type PostStatus = 'draft' | 'scheduled' | 'publishing' | 'published' | 'failed' | 'partial';
 
 export type MediaFormat = 'post' | 'reel' | 'story';
 
@@ -24,6 +24,13 @@ export interface SocialAccount {
   platformNativeId?: string; // e.g. Facebook Page ID, YouTube Channel ID
   avatarUrl?: string;
   accessToken?: string;
+  authMode?: SocialAuthMode;
+  username?: string;
+  password?: string;
+  appId?: string;
+  appSecret?: string;
+  accountType?: 'business' | 'personal';
+  notes?: string;
   isActive: boolean;
   createdAt?: string;
 }
@@ -136,6 +143,7 @@ export interface YouTubeCustomContent {
   description?: string;
   visibility?: 'public' | 'unlisted' | 'private';
   format?: 'video' | 'shorts';
+  channelName?: string;
 }
 
 export interface ThreadsCustomContent {
@@ -162,6 +170,15 @@ export interface Post {
   error_log?: string | null;
   // Multi-account references
   account_ids?: string[];
+  target_accounts?: {
+    id: string;
+    name: string;
+    platform: SocialAccountPlatformType;
+    basePlatform: Platform;
+    handle?: string;
+    avatarUrl?: string;
+    accountType?: 'business' | 'personal';
+  }[];
 }
 
 export interface PlatformConfig {
@@ -209,4 +226,26 @@ export interface SocialAccountCredential {
   pageId?: string;
   profileName?: string;
   profileId?: string;
+}
+
+export interface PlatformPublishResult {
+  platform: Platform | SocialAccountPlatformType | string;
+  accountName?: string;
+  success: boolean;
+  status: 'published' | 'failed' | 'simulated' | 'missing_credentials';
+  message: string;
+  publishedPostId?: string;
+  error?: string;
+  details?: string;
+}
+
+export interface PostPublishResponse {
+  success: boolean;
+  overallStatus: PostStatus;
+  postId: string;
+  message: string;
+  platformResults: PlatformPublishResult[];
+  tips?: string[];
+  webhookDispatched?: boolean;
+  outboundWebhookUrl?: string;
 }

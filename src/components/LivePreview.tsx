@@ -28,6 +28,7 @@ import {
 import { Platform, CustomContent } from '../types';
 import { PLATFORM_CONFIGS } from '../lib/constants';
 import { PlatformIcon } from './PlatformIcon';
+import { getStoredMultiAccounts } from '../lib/socialAccounts';
 
 interface LivePreviewProps {
   platforms: Platform[];
@@ -35,6 +36,7 @@ interface LivePreviewProps {
   mediaUrls: string[];
   customContent: CustomContent;
   scheduledAt: string;
+  targetAccountIds?: string[];
 }
 
 export const LivePreview: React.FC<LivePreviewProps> = ({
@@ -43,6 +45,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   mediaUrls,
   customContent,
   scheduledAt,
+  targetAccountIds,
 }) => {
   // Select active preview platform among selected platforms (or default to first available)
   const availablePlatforms = platforms.length > 0 ? platforms : (['facebook', 'instagram', 'threads', 'youtube'] as Platform[]);
@@ -52,6 +55,29 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   const currentTab = availablePlatforms.includes(activePreview) ? activePreview : availablePlatforms[0];
 
   const defaultAvatar = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&h=200&q=80';
+
+  const storedAccounts = getStoredMultiAccounts();
+  const matchedFbAccount = storedAccounts.find(
+    (a) =>
+      a.basePlatform === 'facebook' &&
+      (targetAccountIds?.includes(a.id) || a.name === customContent.facebook?.targetName)
+  ) || storedAccounts.find((a) => a.basePlatform === 'facebook');
+
+  const matchedYtAccount = storedAccounts.find(
+    (a) =>
+      a.basePlatform === 'youtube' &&
+      (targetAccountIds?.includes(a.id) ||
+        a.id === customContent.youtube?.channelId ||
+        a.name === customContent.youtube?.channelName)
+  ) || storedAccounts.find((a) => a.basePlatform === 'youtube');
+
+  const matchedIgAccount = storedAccounts.find(
+    (a) => a.basePlatform === 'instagram' && targetAccountIds?.includes(a.id)
+  ) || storedAccounts.find((a) => a.basePlatform === 'instagram');
+
+  const matchedThAccount = storedAccounts.find(
+    (a) => a.basePlatform === 'threads' && targetAccountIds?.includes(a.id)
+  ) || storedAccounts.find((a) => a.basePlatform === 'threads');
 
   const scheduledDateStr = scheduledAt
     ? new Date(scheduledAt).toLocaleString('hu-HU', {
@@ -345,7 +371,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                 <div className="p-3 flex items-center justify-between border-b border-zinc-800/60">
                   <div className="flex items-center gap-2.5">
                     <img
-                      src={defaultAvatar}
+                      src={matchedFbAccount?.avatarUrl || defaultAvatar}
                       alt="Profile"
                       className="w-9 h-9 rounded-full object-cover border border-zinc-700"
                     />
@@ -353,11 +379,12 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                       <div className="flex items-center gap-1.5">
                         <span className="font-semibold text-zinc-100 text-xs hover:underline cursor-pointer">
                           {customContent.facebook?.targetName ||
+                            matchedFbAccount?.name ||
                             (customContent.facebook?.targetType === 'profile'
-                              ? 'Saját Profil (Kovács János)'
+                              ? 'napicsabi (Személyes profil)'
                               : customContent.facebook?.targetType === 'both'
-                              ? 'Üzleti Oldal & Saját Profil'
-                              : 'PostPulse Brand Official')}
+                              ? 'VellioNation & napicsabi'
+                              : 'VellioNation Hivatalos Oldal')}
                         </span>
                         {customContent.facebook?.targetType === 'profile' ? (
                           <span className="text-[9px] px-1 py-0.2 rounded bg-purple-500/20 text-purple-300 font-medium">
@@ -689,7 +716,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                   <div className="flex items-center gap-2.5">
                     <div className="p-0.5 rounded-full bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600">
                       <img
-                        src={defaultAvatar}
+                        src={matchedIgAccount?.avatarUrl || defaultAvatar}
                         alt="Instagram profile"
                         className="w-7 h-7 rounded-full object-cover border-2 border-zinc-950"
                       />
@@ -697,7 +724,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                     <div>
                       <div className="flex items-center gap-1">
                         <span className="font-semibold text-zinc-100 text-xs">
-                          brandofficial
+                          {matchedIgAccount?.handle?.replace('@', '') || matchedIgAccount?.name || 'vellionation'}
                         </span>
                         <span className="w-3 h-3 rounded-full bg-blue-500 flex items-center justify-center text-[7px] text-white">
                           ✓
@@ -749,7 +776,9 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
 
                   {/* Caption */}
                   <div className="text-xs text-zinc-300 leading-snug">
-                    <span className="font-semibold text-white mr-1.5">brandofficial</span>
+                    <span className="font-semibold text-white mr-1.5">
+                      {matchedIgAccount?.handle?.replace('@', '') || matchedIgAccount?.name || 'vellionation'}
+                    </span>
                     <span className="whitespace-pre-line">{baseText || 'Poszt szöveg helye...'}</span>
                     {customContent.instagram?.hashtags && (
                       <p className="text-blue-400 mt-1 text-[11px] font-normal break-words">
@@ -761,7 +790,9 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                   {/* Simulated First Comment */}
                   {customContent.instagram?.firstComment && (
                     <div className="mt-2 pt-2 border-t border-zinc-900 text-xs flex items-start gap-1.5 bg-zinc-900/40 p-2 rounded-lg">
-                      <span className="font-semibold text-white">brandofficial:</span>
+                      <span className="font-semibold text-white">
+                        {matchedIgAccount?.handle?.replace('@', '') || matchedIgAccount?.name || 'vellionation'}:
+                      </span>
                       <span className="text-zinc-300">{customContent.instagram.firstComment}</span>
                     </div>
                   )}
@@ -782,7 +813,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
               {/* Left Column: Avatar & Continuous Thread Line */}
               <div className="flex flex-col items-center">
                 <img
-                  src={defaultAvatar}
+                  src={matchedThAccount?.avatarUrl || defaultAvatar}
                   alt="Threads avatar"
                   className="w-9 h-9 rounded-full object-cover border border-zinc-800"
                 />
@@ -797,7 +828,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <span className="font-semibold text-zinc-100 text-xs">
-                      brandofficial
+                      {matchedThAccount?.handle?.replace('@', '') || matchedThAccount?.name || 'napicsabi'}
                     </span>
                     <span className="w-3 h-3 rounded-full bg-blue-500 flex items-center justify-center text-[7px] text-white">
                       ✓
@@ -904,7 +935,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
             <div className="p-3 space-y-2.5">
               <div className="flex items-start gap-3">
                 <img
-                  src={defaultAvatar}
+                  src={matchedYtAccount?.avatarUrl || defaultAvatar}
                   alt="Channel"
                   className="w-9 h-9 rounded-full object-cover border border-zinc-700 shrink-0 mt-0.5"
                 />
@@ -913,7 +944,9 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                     {customContent.youtube?.title || baseText.split('\n')[0] || 'Videó címe megadva YouTube beállításokban'}
                   </h4>
                   <div className="flex items-center gap-1 text-[11px] text-zinc-400 mt-1">
-                    <span>Brand Official Studio</span>
+                    <span>
+                      {customContent.youtube?.channelName || matchedYtAccount?.name || 'Tech & AI Csatorna'}
+                    </span>
                     <span>•</span>
                     <span>1.2K megtekintés</span>
                     <span>•</span>
